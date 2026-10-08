@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import DisplayKeysCore
 import Security
 
 /// Accessibility access, which the keyboard key tap depends on.
@@ -14,6 +15,7 @@ final class AccessibilityAccess: NSObject {
     /// Posted system-wide when Accessibility access changes for any app.
     private static let changedNotification = Notification.Name("com.apple.accessibility.api")
     private static let handledBuildKey = "accessibilityHandledBuild"
+    private static let askingDisabledKey = "accessibilityAskingDisabled"
     private static let settingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
     private static let pollInterval: TimeInterval = 3
 
@@ -23,15 +25,22 @@ final class AccessibilityAccess: NSObject {
 
     var isGranted: Bool { AXIsProcessTrusted() }
 
-    /// Starts following changes, and asks for access the first time each build runs without it.
+    /// When set, a new build no longer asks for access on its own; the menu still can.
+    var askingIsDisabled: Bool {
+        get { AppInfo.defaults.bool(forKey: Self.askingDisabledKey) }
+        set { AppInfo.defaults.set(newValue, forKey: Self.askingDisabledKey) }
+    }
+
+    /// Starts following changes, and asks for access when the policy says so.
     func start() {
         DistributedNotificationCenter.default().addObserver(
-            self, selector: #selector(accessChanged), name: Self.changedNotification, object: nil
-        )
+            self, selector: #selector(accessChanged), name: Self.changedNotification, object: nil)
         let build = CodeIdentity.current ?? "unknown"
-        let isNewBuild = AppInfo.defaults.string(forKey: Self.handledBuildKey) != build
+        let shouldAsk = AccessPolicy.shouldAskAtLaunch(
+            isGranted: isGranted, handledBuild: AppInfo.defaults.string(forKey: Self.handledBuildKey),
+            currentBuild: build, askingIsDisabled: askingIsDisabled)
         AppInfo.defaults.set(build, forKey: Self.handledBuildKey)
-        if isNewBuild { request(openSettings: false) }
+        if shouldAsk { request(openSettings: false) }
     }
 
     /// Clears the entry macOS holds for this app, has macOS list the app again, and optionally
@@ -60,8 +69,7 @@ final class AccessibilityAccess: NSObject {
     func startWaiting() {
         guard timer == nil else { return }
         let timer = Timer(
-            timeInterval: Self.pollInterval, target: self, selector: #selector(notify), userInfo: nil, repeats: true
-        )
+            timeInterval: Self.pollInterval, target: self, selector: #selector(notify), userInfo: nil, repeats: true)
         timer.tolerance = 1
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -74,9 +82,8 @@ final class AccessibilityAccess: NSObject {
 
     private func prompt(openSettings: Bool) {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        guard !AXIsProcessTrustedWithOptions(options), openSettings, let url = URL(string: Self.settingsURL) else {
-            return
-        }
+        guard !AXIsProcessTrustedWithOptions(options), openSettings, let url = URL(string: Self.settingsURL)
+        else { return }
         NSWorkspace.shared.open(url)
     }
 
@@ -104,4 +111,9 @@ enum CodeIdentity {
         else { return nil }
         return hash.map { String(format: "%02x", $0) }.joined()
     }()
+
+    /// A short form for people, in the way git abbreviates a commit.
+    static var short: String? {
+        current.map { String($0.prefix(7)) }
+    }
 }

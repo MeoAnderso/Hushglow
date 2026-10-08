@@ -21,12 +21,25 @@ public struct Shortcut: Equatable, Sendable {
         case volumeDown = "volume-down"
         case mute
 
-        /// Shortcuts that work without any setup; volume and mute use the keyboard's own keys.
+        /// The shortcuts a fresh install starts with. They work on any keyboard, including
+        /// ones without brightness or volume keys.
         public var defaultShortcut: String? {
             switch self {
             case .brightnessUp: "ctrl+alt+up"
             case .brightnessDown: "ctrl+alt+down"
-            case .volumeUp, .volumeDown, .mute: nil
+            case .volumeUp: "ctrl+alt+right"
+            case .volumeDown: "ctrl+alt+left"
+            case .mute: "ctrl+alt+end"
+            }
+        }
+
+        public var title: String {
+            switch self {
+            case .brightnessUp: "Brightness up"
+            case .brightnessDown: "Brightness down"
+            case .volumeUp: "Volume up"
+            case .volumeDown: "Volume down"
+            case .mute: "Mute"
             }
         }
 
@@ -66,6 +79,47 @@ public struct Shortcut: Equatable, Sendable {
         self.keyCode = keyCode
         self.modifiers = modifiers
     }
+
+    /// A shortcut from a key press; nil when the key is not one a shortcut can use.
+    public init?(keyCode: Int, modifiers: Modifiers) {
+        guard Self.keyCodes.values.contains(keyCode) else { return nil }
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+    }
+
+    /// Whether the shortcut is safe to claim system-wide. A bare arrow or page key would take
+    /// that key away from every app, so those need a modifier; a function key may stand alone.
+    public var isUsable: Bool {
+        !modifiers.isEmpty || (Self.keyName(for: keyCode)?.hasPrefix("f") ?? false)
+    }
+
+    /// The name of a key a shortcut can use, such as `f11` or `pageup`; nil for any other key.
+    public static func keyName(for keyCode: Int) -> String? {
+        keyCodes.first { $0.value == keyCode }?.key
+    }
+
+    /// The text form that `init(_:)` parses, for example `ctrl+alt+up`.
+    public var text: String {
+        let key = Self.keyName(for: keyCode) ?? ""
+        return (Self.modifierOrder.filter { modifiers.contains($0.modifier) }.map(\.name) + [key]).joined(
+            separator: "+")
+    }
+
+    /// The form shown to people, for example `⌃⌥↑`.
+    public var symbols: String {
+        let key = Self.keyName(for: keyCode) ?? ""
+        let keySymbol = Self.keySymbols[key] ?? key.uppercased()
+        return Self.modifierOrder.filter { modifiers.contains($0.modifier) }.map(\.symbol).joined() + keySymbol
+    }
+
+    private static let modifierOrder: [(modifier: Modifiers, name: String, symbol: String)] = [
+        (.control, "ctrl", "⌃"), (.option, "alt", "⌥"), (.shift, "shift", "⇧"), (.command, "cmd", "⌘"),
+    ]
+
+    private static let keySymbols: [String: String] = [
+        "up": "↑", "down": "↓", "left": "←", "right": "→",
+        "pageup": "⇞", "pagedown": "⇟", "home": "↖", "end": "↘",
+    ]
 
     private static let modifierNames: [String: Modifiers] = [
         "cmd": .command, "command": .command,

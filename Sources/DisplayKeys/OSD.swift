@@ -14,16 +14,15 @@ final class OSD: NSObject {
     private var panel: NSPanel?
     private var indicator: OSDView?
 
-    func show(_ feedback: Feedback) {
+    func show(_ indication: Indication) {
         let panel = panel ?? makePanel()
-        indicator?.feedback = feedback
+        indicator?.indication = indication
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             let area = screen.visibleFrame
             panel.setFrameOrigin(
                 NSPoint(
                     x: area.maxX - Self.size.width - Self.margin,
-                    y: area.maxY - Self.size.height - Self.margin
-                ))
+                    y: area.maxY - Self.size.height - Self.margin))
         }
         // Replaces a fade that may be in flight.
         NSAnimationContext.runAnimationGroup { context in
@@ -92,7 +91,8 @@ final class OSD: NSObject {
     }
 }
 
-/// Draws the icon and a segmented level bar, one segment per coarse key step.
+/// Draws an icon with either a segmented level bar, one segment per coarse key step, or a
+/// short message when there is no level to show.
 final class OSDView: NSView {
     private static let segmentCount = Level.coarseSteps
     private static let iconLeft: CGFloat = 16
@@ -101,8 +101,8 @@ final class OSDView: NSView {
     private static let barHeight: CGFloat = 8
     private static let segmentGap: CGFloat = 2
 
-    var feedback = Feedback(kind: .brightness, fraction: 0) {
-        didSet { if feedback != oldValue { needsDisplay = true } }
+    var indication = Indication.level(Feedback(kind: .brightness, fraction: 0)) {
+        didSet { if indication != oldValue { needsDisplay = true } }
     }
 
     private var symbols: [String: NSImage] = [:]
@@ -112,7 +112,15 @@ final class OSDView: NSView {
             let origin = NSPoint(x: Self.iconLeft, y: ((bounds.height - image.size.height) / 2).rounded())
             image.draw(in: NSRect(origin: origin, size: image.size))
         }
+        switch indication {
+        case .level(let feedback): drawBar(feedback)
+        case .refused(let control): drawMessage("\(control.rawValue.capitalized) is locked")
+        case .unsupported(let control): drawMessage("No \(control.rawValue) control")
+        case .noDisplay: drawMessage("No display to control")
+        }
+    }
 
+    private func drawBar(_ feedback: Feedback) {
         let barWidth = bounds.width - Self.barLeft - Self.barRight
         let gaps = Self.segmentGap * CGFloat(Self.segmentCount - 1)
         let segmentWidth = (barWidth - gaps) / CGFloat(Self.segmentCount)
@@ -124,8 +132,7 @@ final class OSDView: NSView {
                 x: Self.barLeft + CGFloat(index) * (segmentWidth + Self.segmentGap),
                 y: (bounds.height - Self.barHeight) / 2,
                 width: segmentWidth,
-                height: Self.barHeight
-            )
+                height: Self.barHeight)
             let path = NSBezierPath(roundedRect: segment, xRadius: 2, yRadius: 2)
             NSColor.white.withAlphaComponent(0.22).setFill()
             path.fill()
@@ -141,16 +148,34 @@ final class OSDView: NSView {
         }
     }
 
+    private func drawMessage(_ text: String) {
+        let message = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.95),
+            ])
+        let size = message.size()
+        message.draw(at: NSPoint(x: Self.barLeft, y: ((bounds.height - size.height) / 2).rounded()))
+    }
+
     private var symbolName: String {
-        switch feedback.kind {
-        case .brightness: "sun.max.fill"
-        case .muted: "speaker.slash.fill"
-        case .volume:
-            switch feedback.fraction {
-            case ...0: "speaker.fill"
-            case ..<0.34: "speaker.wave.1.fill"
-            case ..<0.67: "speaker.wave.2.fill"
-            default: "speaker.wave.3.fill"
+        switch indication {
+        case .refused: return "lock.fill"
+        case .noDisplay: return "display.trianglebadge.exclamationmark"
+        case .unsupported(.brightness): return "sun.max"
+        case .unsupported(.volume): return "speaker.slash"
+        case .level(let feedback):
+            switch feedback.kind {
+            case .brightness: return "sun.max.fill"
+            case .muted: return "speaker.slash.fill"
+            case .volume:
+                switch feedback.fraction {
+                case ...0: return "speaker.fill"
+                case ..<0.34: return "speaker.wave.1.fill"
+                case ..<0.67: return "speaker.wave.2.fill"
+                default: return "speaker.wave.3.fill"
+                }
             }
         }
     }
@@ -159,8 +184,8 @@ final class OSDView: NSView {
         if let cached = symbols[name] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
             .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(
-            configuration)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration)
         symbols[name] = image
         return image
     }

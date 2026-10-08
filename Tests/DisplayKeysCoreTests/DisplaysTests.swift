@@ -11,7 +11,8 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     private let handle = Handle()
     private var values: [DDC.Feature: Int] = [.brightness: 50, .volume: 13, .mute: DDC.Mute.off]
     private var events: [String] = []
-    private var appliesWrites = true
+    /// What the display does with a written value; nil means it ignores writes.
+    private var onWrite: ((Int) -> Int)? = { $0 }
 
     func displays() -> [Handle] { [handle] }
 
@@ -25,7 +26,7 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     func set(_ display: Handle, _ feature: DDC.Feature, value: Int) -> Bool {
         lock.withLock {
             events.append("set \(feature)=\(value)")
-            if appliesWrites { values[feature] = value }
+            if let onWrite { values[feature] = onWrite(value) }
             return true
         }
     }
@@ -35,7 +36,12 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     }
 
     func ignoreWrites() {
-        lock.withLock { appliesWrites = false }
+        lock.withLock { onWrite = nil }
+    }
+
+    /// Makes the display settle one unit below whatever is written.
+    func adjustWrites() {
+        lock.withLock { onWrite = { $0 - 1 } }
     }
 
     func value(_ feature: DDC.Feature) -> Int? {
@@ -54,7 +60,8 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
 @MainActor
 private final class Recorder {
     var fractions: [Double?] = []
-    var mismatches: [String] = []
+    var finals: [Bool] = []
+    var mismatches: [DisplayMismatch] = []
     var now = Date(timeIntervalSince1970: 1_000_000)
 }
 
@@ -71,9 +78,7 @@ private final class Recorder {
         let recorder = recorder
         displays = Displays(
             transport: transport, queue: queue, timing: timing, now: { recorder.now }, onWriteFailure: {})
-        displays.onMismatch = { feature, cached, actual, afterWrite in
-            recorder.mismatches.append("\(feature) cached=\(cached) actual=\(actual) afterWrite=\(afterWrite)")
-        }
+        displays.onMismatch = { recorder.mismatches.append($0) }
         displays.refresh()
         await settle()
         _ = transport.takeEvents()
@@ -90,7 +95,15 @@ private final class Recorder {
 
     private func press(_ command: Command) {
         let recorder = recorder
-        displays.apply(command) { recorder.fractions.append($0?.fraction) }
+        displays.apply(command) { feedback, isFinal in
+            recorder.fractions.append(feedback?.fraction)
+            recorder.finals.append(isFinal)
+        }
+    }
+
+    /// Lets the cache go stale, as after a pause between bursts of key presses.
+    private func pause() {
+        recorder.now += 6
     }
 
     private let brightnessUp = Command.step(.brightness, up: true, fine: false)
@@ -104,6 +117,7 @@ private final class Recorder {
     @Test func aFreshCacheIsWrittenWithoutReadingFirst() async {
         press(brightnessUp)
         #expect(recorder.fractions == [0.56])
+        #expect(recorder.finals == [true])
         await settle()
         // The write goes out first; the read is the read-back that follows a burst.
         #expect(transport.takeEvents() == ["set brightness=56", "get brightness"])
@@ -111,20 +125,22 @@ private final class Recorder {
     }
 
     @Test func aStaleCacheIsReadBeforeWriting() async {
-        recorder.now += 6
+        pause()
         transport.change(.brightness, to: 80)
 
         press(brightnessUp)
         #expect(recorder.fractions == [0.56])  // expected result, shown at once
+        #expect(recorder.finals == [false])
         await settle()
         #expect(recorder.fractions == [0.56, 0.81])  // real result, after reading the display
+        #expect(recorder.finals == [false, true])
         #expect(transport.takeEvents() == ["get brightness", "set brightness=81", "get brightness"])
         #expect(displays.primary?.brightness?.current == 81)
-        #expect(recorder.mismatches == ["brightness cached=50 actual=80 afterWrite=false"])
+        #expect(recorder.mismatches == [.init(feature: .brightness, cached: 50, actual: 80, kind: .changedOutside)])
     }
 
     @Test func pressesDuringTheReadAreReplayedInOrder() async {
-        recorder.now += 6
+        pause()
         transport.change(.brightness, to: 80)
 
         for _ in 0..<3 { press(brightnessUp) }
@@ -134,23 +150,42 @@ private final class Recorder {
         #expect(transport.value(.brightness) == 94)
     }
 
-    @Test func volumeCommandsReadVolumeAndMute() async {
-        recorder.now += 6
+    @Test func aVolumeStepReadsOnlyTheVolumeFirst() async {
+        pause()
         press(.step(.volume, up: true, fine: false))
         await settle()
-        #expect(Array(transport.takeEvents().prefix(3)) == ["get volume", "get mute", "set volume=19"])
+        // One read before the write keeps the first press quick; the read-back covers mute too.
+        #expect(transport.takeEvents() == ["get volume", "set volume=19", "get volume", "get mute"])
     }
 
-    @Test func aWriteTheDisplayIgnoredIsNoticedOnReadBack() async {
+    @Test func aMuteToggleReadsTheMuteStateFirst() async {
+        pause()
+        transport.change(.mute, to: DDC.Mute.on)
+        press(.mute(.toggle))
+        await settle()
+        #expect(Array(transport.takeEvents().prefix(2)) == ["get mute", "set mute=\(DDC.Mute.off)"])
+        #expect(displays.primary?.isMuted == false)
+    }
+
+    @Test func aWriteTheDisplayRefusedIsReported() async {
         transport.ignoreWrites()
+        press(brightnessUp)
         press(brightnessUp)
         await settle()
         #expect(displays.primary?.brightness?.current == 50)
-        #expect(recorder.mismatches == ["brightness cached=56 actual=50 afterWrite=true"])
+        #expect(recorder.mismatches == [.init(feature: .brightness, cached: 63, actual: 50, kind: .writeRefused)])
+    }
+
+    @Test func aWriteTheDisplayAdjustedIsNotCalledRefused() async {
+        transport.adjustWrites()
+        press(brightnessUp)
+        await settle()
+        #expect(displays.primary?.brightness?.current == 55)
+        #expect(recorder.mismatches == [.init(feature: .brightness, cached: 56, actual: 55, kind: .writeAdjusted)])
     }
 
     @Test func suspendDropsCommandsThatAreStillWaiting() async {
-        recorder.now += 6
+        pause()
         press(brightnessUp)
         displays.suspend()
         await settle()
@@ -161,9 +196,13 @@ private final class Recorder {
     @Test func aControlWithoutADisplayDoesNothing() async {
         let empty = Displays(transport: transport, queue: queue, onWriteFailure: {})
         let recorder = recorder
-        empty.apply(brightnessUp) { recorder.fractions.append($0?.fraction) }
+        empty.apply(brightnessUp) { feedback, isFinal in
+            recorder.fractions.append(feedback?.fraction)
+            recorder.finals.append(isFinal)
+        }
         await settle()
         #expect(recorder.fractions == [nil, nil])
+        #expect(recorder.finals == [false, true])
         #expect(!transport.takeEvents().contains { $0.hasPrefix("set") })
     }
 }

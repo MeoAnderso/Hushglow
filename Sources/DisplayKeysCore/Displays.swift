@@ -19,11 +19,28 @@ extension DisplayTransport {
     }
 }
 
+/// A reading from a display that disagreed with the cache.
+public struct DisplayMismatch: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        /// The value was changed outside the app, for example with the display's own buttons.
+        case changedOutside
+        /// The display kept the value it had before the app wrote to it.
+        case writeRefused
+        /// The display took the write but settled on a different value.
+        case writeAdjusted
+    }
+
+    public var feature: DDC.Feature
+    public var cached: Int
+    public var actual: Int
+    public var kind: Kind
+}
+
 /// The connected DDC displays and a cache of their state.
 ///
-/// Commands are applied to the cache and written out asynchronously, so a key press never waits
-/// for the display. The cache is kept honest in two ways: a control that has not been heard from
-/// for a while is read before it is written, and every burst of writes is read back afterwards.
+/// Commands are applied to the cache and written out asynchronously, so the indicator never
+/// waits for the display. The cache is kept honest in two ways: a value that has not been heard
+/// from for a while is read before it is written, and every burst of writes is read back.
 @MainActor
 public final class Displays<Transport: DisplayTransport> {
     public struct Timing: Sendable {
@@ -38,14 +55,15 @@ public final class Displays<Transport: DisplayTransport> {
         public init() {}
     }
 
-    /// Receives what the indicator should show. For a stale control it is called twice: at once
-    /// with the expected result, then with the real one after the display has been read.
-    public typealias FeedbackHandler = @MainActor (Feedback?) -> Void
+    /// Receives the level to show. For a stale value it is called twice: at once with the
+    /// expected result, then with the real one (`isFinal`) after the display has been read.
+    /// The level is nil when no display has the control.
+    public typealias FeedbackHandler = @MainActor (_ feedback: Feedback?, _ isFinal: Bool) -> Void
 
     public var onChange: (() -> Void)?
-    /// A reading disagreed with the cache. `afterWrite` tells a write the display did not take
-    /// from a change made outside the app.
-    public var onMismatch: ((_ feature: DDC.Feature, _ cached: Int, _ actual: Int, _ afterWrite: Bool) -> Void)?
+    public var onMismatch: ((DisplayMismatch) -> Void)?
+    /// Reports how long a read of the displays took.
+    public var onRead: ((_ features: [DDC.Feature], _ duration: TimeInterval) -> Void)?
 
     private struct Entry: Sendable {
         let display: Transport.Handle
@@ -70,14 +88,16 @@ public final class Displays<Transport: DisplayTransport> {
     private var topology = 0
     /// Counts commands per control, so a reading that a newer command has overtaken is dropped.
     private var epochs: [Command.Control: Int] = [:]
-    private var syncedAt: [Command.Control: Date] = [:]
+    private var syncedAt: [DDC.Feature: Date] = [:]
     private var isSyncing = false
-    /// Commands for a stale control, held until the display has been read.
+    /// Commands for a stale value, held until the display has been read.
     private var waiting: [Waiting] = []
     /// The states the waiting commands are expected to produce, for immediate feedback.
     private var preview: [DisplayState]?
     /// Controls written since they were last read back.
     private var unverified: Set<Command.Control> = []
+    /// Per display, the value each feature had before the current burst of writes began.
+    private var burstOrigin: [Int: [DDC.Feature: Int]] = [:]
     private var verifyDeadline = DispatchTime.now()
     private var verifyIsScheduled = false
 
@@ -104,15 +124,15 @@ public final class Displays<Transport: DisplayTransport> {
     }
 
     /// Applies a command to every display that has the control.
-    public func apply(_ command: Command, feedback: @escaping FeedbackHandler = { _ in }) {
-        if isFresh(command.control) {
-            feedback(applyNow(command))
+    public func apply(_ command: Command, feedback: @escaping FeedbackHandler = { _, _ in }) {
+        if isFresh(command.featureToRead) {
+            feedback(applyNow(command), true)
             return
         }
         // The cache may be out of date: show the expected result, but read before writing.
-        feedback(previewResult(of: command))
+        feedback(previewResult(of: command), false)
         waiting.append(Waiting(command: command, feedback: feedback))
-        if !isSyncing { sync(Set(waiting.map(\.command.control))) }
+        if !isSyncing { readForWaitingCommands() }
     }
 
     /// Forgets everything pending and stops trusting the cache, for when the displays go to sleep.
@@ -121,30 +141,37 @@ public final class Displays<Transport: DisplayTransport> {
         waiting.removeAll()
         preview = nil
         unverified.removeAll()
+        burstOrigin.removeAll()
         syncedAt.removeAll()
     }
 
     // MARK: Applying commands
 
-    private func isFresh(_ control: Command.Control) -> Bool {
-        guard let time = syncedAt[control] else { return false }
+    private func isFresh(_ feature: DDC.Feature) -> Bool {
+        guard let time = syncedAt[feature] else { return false }
         return now().timeIntervalSince(time) < timing.staleAfter
     }
 
     private func applyNow(_ command: Command) -> Feedback? {
         var feedback: Feedback?
         var wrote = false
+        let time = now()
         for index in entries.indices {
+            let before = entries[index].state
             guard let outcome = entries[index].state.apply(command) else { continue }
             for write in outcome.writes {
                 writer.submit(entries[index].display, write.feature, write.value)
+                syncedAt[write.feature] = time
+                if burstOrigin[index]?[write.feature] == nil, let value = before.value(of: write.feature) {
+                    burstOrigin[index, default: [:]][write.feature] = value
+                }
                 wrote = true
             }
             feedback = feedback ?? outcome.feedback
         }
         guard feedback != nil else { return nil }
         epochs[command.control, default: 0] += 1
-        syncedAt[command.control] = now()
+        syncedAt[command.featureToRead] = time
         if wrote {
             unverified.insert(command.control)
             scheduleVerify()
@@ -162,13 +189,22 @@ public final class Displays<Transport: DisplayTransport> {
         return feedback
     }
 
-    /// Applies the waiting commands whose control has just been read, and reads the rest.
-    private func drainWaiting(synced: Set<Command.Control>) {
+    private func readForWaitingCommands() {
+        var features: [DDC.Feature] = []
+        for item in waiting where !features.contains(item.command.featureToRead) {
+            features.append(item.command.featureToRead)
+        }
+        read(features, for: Set(waiting.map(\.command.control)), isVerify: false)
+    }
+
+    /// Applies the waiting commands whose value has just been read, and reads for the rest.
+    private func drainWaiting(read features: [DDC.Feature]) {
         let pending = waiting
         waiting = []
         for item in pending {
-            if synced.contains(item.command.control) || isFresh(item.command.control) {
-                item.feedback(applyNow(item.command))
+            let feature = item.command.featureToRead
+            if features.contains(feature) || isFresh(feature) {
+                item.feedback(applyNow(item.command), true)
             } else {
                 waiting.append(item)
             }
@@ -176,7 +212,7 @@ public final class Displays<Transport: DisplayTransport> {
         if waiting.isEmpty {
             preview = nil
         } else if !isSyncing {
-            sync(Set(waiting.map(\.command.control)))
+            readForWaitingCommands()
         }
     }
 
@@ -201,9 +237,10 @@ public final class Displays<Transport: DisplayTransport> {
         guard generation == self.generation else { return }
         entries = found.filter(\.state.isControllable)
         topology += 1
+        burstOrigin.removeAll()
         let time = now()
         for control in Command.Control.allCases {
-            syncedAt[control] = time
+            for feature in control.features { syncedAt[feature] = time }
             // A command applied while the displays were being read may be missing from the reading.
             if epochs[control] == startEpochs[control] {
                 unverified.remove(control)
@@ -213,7 +250,7 @@ public final class Displays<Transport: DisplayTransport> {
         }
         if !unverified.isEmpty { scheduleVerify() }
         onChange?()
-        drainWaiting(synced: Set(Command.Control.allCases))
+        drainWaiting(read: Command.Control.allCases.flatMap(\.features))
 
         guard entries.count < found.count, attempt < timing.retryDelays.count else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + timing.retryDelays[attempt]) {
@@ -224,49 +261,57 @@ public final class Displays<Transport: DisplayTransport> {
         }
     }
 
-    /// Reads the given controls from every display and reconciles the cache with the readings.
-    private func sync(_ controls: Set<Command.Control>) {
+    /// Reads features from every display and reconciles the cache with the readings.
+    private func read(_ features: [DDC.Feature], for controls: Set<Command.Control>, isVerify: Bool) {
         isSyncing = true
-        let features = Command.Control.allCases.filter(controls.contains).flatMap(\.features)
         let displays = entries.map(\.display)
         let startEpochs = epochs
         let topology = topology
         let transport = transport
         queue.async {
+            let start = DispatchTime.now().uptimeNanoseconds
             let readings = displays.map { display in features.map { transport.get(display, $0) } }
+            let duration = TimeInterval(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self.finishSync(
-                        controls, features: features, readings: readings, startEpochs: startEpochs, topology: topology)
+                    if !displays.isEmpty { self.onRead?(features, duration) }
+                    self.finishRead(
+                        features, for: controls, isVerify: isVerify, readings: readings, startEpochs: startEpochs,
+                        topology: topology)
                 }
             }
         }
     }
 
-    private func finishSync(
-        _ controls: Set<Command.Control>, features: [DDC.Feature], readings: [[DDC.Value?]],
+    private func finishRead(
+        _ features: [DDC.Feature], for controls: Set<Command.Control>, isVerify: Bool, readings: [[DDC.Value?]],
         startEpochs: [Command.Control: Int], topology: Int
     ) {
         isSyncing = false
         let time = now()
+        for feature in features { syncedAt[feature] = time }
+
         var changed = false
         for control in controls {
-            syncedAt[control] = time
             // Drop a reading that a newer command or a rediscovery has already overtaken.
             guard topology == self.topology, epochs[control] == startEpochs[control] else { continue }
-            let afterWrite = unverified.remove(control) != nil
+            let afterWrite = isVerify && unverified.remove(control) != nil
             for (index, values) in readings.enumerated() {
                 for (feature, value) in zip(features, values) where control.features.contains(feature) {
+                    let origin = burstOrigin[index]?[feature]
+                    if afterWrite { burstOrigin[index]?[feature] = nil }
                     guard let value, let cached = entries[index].state.reconcile(feature, with: value) else { continue }
                     changed = true
-                    onMismatch?(feature, cached, value.current, afterWrite)
+                    let kind: DisplayMismatch.Kind =
+                        !afterWrite ? .changedOutside : value.current == origin ? .writeRefused : .writeAdjusted
+                    onMismatch?(DisplayMismatch(feature: feature, cached: cached, actual: value.current, kind: kind))
                 }
             }
         }
         if changed { onChange?() }
         // A reading that was dropped leaves its control unverified; make sure it is read again.
         if !unverified.isEmpty { scheduleVerify() }
-        drainWaiting(synced: controls)
+        drainWaiting(read: features)
     }
 
     // MARK: Reading back after writes
@@ -287,7 +332,9 @@ public final class Displays<Transport: DisplayTransport> {
                     self.waitForVerifyDeadline()
                 } else {
                     self.verifyIsScheduled = false
-                    if !self.unverified.isEmpty { self.sync(self.unverified) }
+                    let controls = self.unverified
+                    let features = Command.Control.allCases.filter(controls.contains).flatMap(\.features)
+                    if !controls.isEmpty { self.read(features, for: controls, isVerify: true) }
                 }
             }
         }

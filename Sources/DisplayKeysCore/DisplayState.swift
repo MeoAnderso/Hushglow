@@ -1,4 +1,14 @@
-/// What the on-screen indicator should show after a command.
+/// What the on-screen indicator shows.
+public enum Indication: Equatable, Sendable {
+    case level(Feedback)
+    /// The display did not take a change; some picture modes lock brightness, for example.
+    case refused(Command.Control)
+    /// The connected display does not have this control.
+    case unsupported(Command.Control)
+    case noDisplay
+}
+
+/// The level the on-screen indicator should show after a command.
 public struct Feedback: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case brightness
@@ -44,6 +54,15 @@ public struct DisplayState: Equatable, Sendable {
         self.volume = volume
         hasHardwareMute = mute != nil
         isMuted = mute?.current == DDC.Mute.on
+    }
+
+    /// The cached value of a feature, in the display's own units.
+    public func value(of feature: DDC.Feature) -> Int? {
+        switch feature {
+        case .brightness: brightness?.current
+        case .volume: volume?.current
+        case .mute: hasHardwareMute ? (isMuted ? DDC.Mute.on : DDC.Mute.off) : nil
+        }
     }
 
     /// Whether the display answered for at least one control.

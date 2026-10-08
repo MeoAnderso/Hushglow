@@ -57,6 +57,15 @@ public enum Command: Equatable, Sendable {
         }
     }
 
+    /// What has to be read from a display before this command can be applied to a stale cache.
+    public var featureToRead: DDC.Feature {
+        switch self {
+        case .step(.brightness, _, _), .set(.brightness, _): .brightness
+        case .step(.volume, _, _), .set(.volume, _): .volume
+        case .mute: .mute
+        }
+    }
+
     /// The words that `init(words:)` parses back into this command.
     public var words: [String] {
         switch self {

@@ -6,10 +6,14 @@ import ServiceManagement
 /// state and on-screen indicator stay in sync; otherwise they are sent to the display directly.
 @MainActor
 enum CLI {
-    static let verbs: Set<String> = ["doctor", "status", "get", "set", "step", "mute", "shortcut", "help"]
+    static let verbs: Set<String> = [
+        "doctor", "status", "watch-keys", "get", "set", "step", "mute", "shortcut", "help",
+    ]
 
     private static let quarterStepsWord = "quarter-steps"
     private static let noTransport = "This macOS no longer provides the display control functions."
+    private static let notRunning = "\(AppInfo.name) is not running."
+    private static let client = CommandClient()
 
     private static let usage = """
         Usage:
@@ -22,13 +26,15 @@ enum CLI {
           DisplayKeys shortcut <action> <keys|none|default>   for example: brightness-up ctrl+alt+up
           DisplayKeys shortcut quarter-steps on|off     also register each stepping shortcut with Shift
           DisplayKeys status                            what the running app sees and has received
-          DisplayKeys doctor [--write-test]             check the display connection
+          DisplayKeys watch-keys [seconds]              show which special keys reach the app
+          DisplayKeys doctor [--write-test] [--key-test]   check the display connection and the key path
         """
 
     static func run(_ arguments: [String]) -> Int32 {
         switch arguments.first {
-        case "doctor": doctor(writeTest: arguments.contains("--write-test"))
+        case "doctor": doctor(writeTest: arguments.contains("--write-test"), keyTest: arguments.contains("--key-test"))
         case "status": status()
+        case "watch-keys": watchKeys(arguments)
         case "get": get(arguments)
         case "set", "step", "mute": send(arguments)
         case "shortcut": shortcut(Array(arguments.dropFirst()))
@@ -42,7 +48,7 @@ enum CLI {
     private static func send(_ arguments: [String]) -> Int32 {
         guard let command = Command(words: arguments) else { return fail(usage, status: 64) }
         if AppInfo.otherInstance != nil {
-            CommandChannel.send(command)
+            client.send(command)
             return 0
         }
         guard let io = IOAV.shared else { return fail(noTransport) }
@@ -90,38 +96,63 @@ enum CLI {
             case "none":
                 ShortcutSettings.set("", for: action)
             case let keys:
-                guard Shortcut(keys) != nil else {
+                guard let parsed = Shortcut(keys) else {
                     return fail(
                         "Not a valid shortcut: \(keys). Use modifiers (ctrl, alt, shift, cmd) plus an arrow, "
                             + "page or function key, for example ctrl+alt+up or shift+f15.", status: 64)
                 }
-                ShortcutSettings.set(keys.lowercased(), for: action)
+                guard parsed.isUsable else {
+                    return fail(
+                        "\(keys) on its own would take that key away from every app; add a modifier.", status: 64)
+                }
+                ShortcutSettings.set(parsed.text, for: action)
             }
         } else {
             let actions = Shortcut.Action.allCases.map(\.rawValue).joined(separator: ", ")
             return fail("Unknown action: \(arguments[0]). Actions: \(actions), \(quarterStepsWord)", status: 64)
         }
 
-        CommandChannel.notifyShortcutsChanged()
+        client.notifyShortcutsChanged()
         // The running app answers after it has registered the new shortcuts.
-        guard let status = CommandChannel.requestStatus() else { return succeed("Saved. DisplayKeys is not running.") }
+        guard AppInfo.otherInstance != nil, let status = client.requestStatus() else {
+            return succeed("Saved. \(notRunning)")
+        }
         let refused = status.shortcuts.filter { !$0.registered }
         for entry in status.shortcuts { print(describe(entry)) }
         return refused.isEmpty
             ? 0 : fail("macOS refused \(refused.map(\.keys).joined(separator: ", ")); choose other keys.")
     }
 
-    // MARK: Status and doctor
+    // MARK: Status, key watch and doctor
 
     private static func status() -> Int32 {
-        guard AppInfo.otherInstance != nil else { return fail("\(AppInfo.name) is not running.") }
-        guard let status = CommandChannel.requestStatus() else {
-            return fail("\(AppInfo.name) is running but did not answer.")
-        }
+        guard AppInfo.otherInstance != nil else { return fail(notRunning) }
+        guard let status = client.requestStatus() else { return fail("\(AppInfo.name) is running but did not answer.") }
         return succeed(describe(status))
     }
 
-    private static func doctor(writeTest: Bool) -> Int32 {
+    /// Has the running app record, for a few seconds, which special keys reach it.
+    private static func watchKeys(_ arguments: [String]) -> Int32 {
+        let seconds = arguments.count > 1 ? Int(arguments[1]) ?? 0 : 10
+        guard arguments.count <= 2, (1...60).contains(seconds) else { return fail(usage, status: 64) }
+        guard AppInfo.otherInstance != nil, let before = client.requestStatus() else { return fail(notRunning) }
+        guard before.keyTapActive else {
+            return fail(
+                "Watching keys needs Accessibility access; choose \"Enable Keyboard Volume Keys…\" in the menu.")
+        }
+        client.watchKeys(seconds: seconds)
+        print("Press the keys you want to identify. Watching for \(seconds) seconds; ordinary typing is not recorded.")
+        Thread.sleep(forTimeInterval: TimeInterval(seconds) + 0.5)
+        guard let seen = client.requestStatus()?.watchedKeys else { return fail("The app did not report back.") }
+        if seen.isEmpty {
+            return succeed(
+                "Nothing arrived. If you pressed the keyboard's volume keys, the keyboard does not send them in a "
+                    + "form macOS passes on, so they cannot be used; give those actions a shortcut instead.")
+        }
+        return succeed(seen.map { "  \($0)" }.joined(separator: "\n"))
+    }
+
+    private static func doctor(writeTest: Bool, keyTest: Bool) -> Int32 {
         print("\(AppInfo.name) \(AppInfo.version), macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         guard let io = IOAV.shared else {
             return fail("Display control functions: MISSING. This macOS removed the private IOAVService functions.")
@@ -149,9 +180,10 @@ enum CLI {
 
         if AppInfo.otherInstance == nil {
             print("App: not running")
-        } else if let status = CommandChannel.requestStatus() {
+        } else if let status = client.requestStatus() {
             print("App: running\n" + describe(status).split(separator: "\n").map { "  \($0)" }.joined(separator: "\n"))
             healthy = healthy && status.shortcuts.allSatisfy(\.registered)
+            if keyTest { healthy = self.keyTest(status) && healthy }
         } else {
             print("App: running, but it did not answer")
             healthy = false
@@ -162,7 +194,9 @@ enum CLI {
     /// Nudges a feature by one unit, reads it back, then restores and re-reads the original value.
     private static func writeTest(
         _ io: IOAV, _ display: AVService, _ feature: DDC.Feature, _ original: DDC.Value?
-    ) -> Bool {
+    )
+        -> Bool
+    {
         guard let original else { return true }
         let probe = original.current < original.maximum ? original.current + 1 : original.current - 1
         io.set(display, feature, value: probe)
@@ -178,10 +212,29 @@ enum CLI {
         return passed
     }
 
+    /// Has the app send a simulated volume key through the system and checks that it came back
+    /// to the app, which proves the path the keyboard's own keys take. Volume is put back.
+    private static func keyTest(_ before: AppStatus) -> Bool {
+        guard before.keyTapActive, before.soundGoesToDisplay, let volume = before.volume else {
+            print("  Key test: skipped; it needs active keyboard keys and sound going to the display")
+            return true
+        }
+        client.requestKeyTest()
+        Thread.sleep(forTimeInterval: 0.6)
+        let after = client.requestStatus()
+        client.send(.set(.volume, percent: Int((Double(volume.current) * 100 / Double(volume.maximum)).rounded())))
+        if before.muted { client.send(.mute(.on)) }
+        let received = (after?.input.keysHandled ?? 0) > before.input.keysHandled
+        let moved = after?.volume.map { "volume \(volume.current) -> \($0.current), put back" } ?? "no answer"
+        let outcome = received ? "passed, a simulated volume key reached" : "FAILED, no simulated volume key reached"
+        print("  Key test: \(outcome) the app (\(moved))")
+        return received
+    }
+
     // MARK: Descriptions
 
     private static func describe(_ status: AppStatus) -> String {
-        var lines: [String] = []
+        var lines = ["\(AppInfo.name) \(status.version)" + (status.build.map { ", build \($0)" } ?? "")]
         if !status.displayControlAvailable {
             lines.append("Display: control is unavailable on this macOS")
         } else if status.brightness == nil, status.volume == nil {
@@ -190,6 +243,9 @@ enum CLI {
             lines.append(
                 "Display: brightness \(describe(status.brightness)), volume \(describe(status.volume)), "
                     + "mute \(status.muted ? "on" : "off")")
+        }
+        if let milliseconds = status.lastReadMilliseconds {
+            lines.append("Last read of the display: \(milliseconds) ms")
         }
 
         if status.keyTapActive {
@@ -202,7 +258,8 @@ enum CLI {
         } else {
             lines.append(
                 "Keyboard volume keys: OFF, waiting for Accessibility access "
-                    + "(choose \"Enable Keyboard Volume Keys…\" in the menu)")
+                    + "(choose \"Enable Keyboard Volume Keys…\" in the menu)"
+                    + (status.askingIsDisabled ? "; asking is switched off" : ""))
         }
 
         lines.append("Shortcuts:" + (status.shortcuts.isEmpty ? " none registered" : ""))

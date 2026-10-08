@@ -5,6 +5,9 @@ import IOKit
 /// A retained IOAVService reference for one external display.
 final class AVService: @unchecked Sendable {
     fileprivate let reference: UnsafeMutableRawPointer
+    /// Set once the display misses a request sent with the short waits; from then on it gets the
+    /// long ones. Only touched on the queue that talks to the display.
+    fileprivate var needsLongWaits = false
 
     fileprivate init(reference: UnsafeMutableRawPointer) {
         self.reference = reference
@@ -30,13 +33,22 @@ struct IOAV: DisplayTransport {
             UnsafeMutableRawPointer, UInt32, UInt32, UnsafeRawPointer, UInt32
         ) -> IOReturn
 
+    /// The pauses around a request. Displays differ in how long they need: the short set is
+    /// tried first and suits a display that answers quickly (the display it was tuned on answers a read in
+    /// about 30 ms with it, against 90 ms); the long set is the conservative DDC/CI timing.
+    private struct Waits {
+        let beforeWrite: useconds_t
+        let beforeRead: useconds_t
+
+        static let short = Waits(beforeWrite: 0, beforeRead: 20_000)
+        static let long = Waits(beforeWrite: 10_000, beforeRead: 50_000)
+    }
+
     /// nil when this macOS no longer exports the IOAVService functions.
     static let shared = IOAV()
 
-    private static let writeWait: useconds_t = 10_000
     /// Displays answer with a null message unless a request is written twice.
     private static let writeCycles = 2
-    private static let readWait: useconds_t = 50_000
     private static let retryWait: useconds_t = 20_000
     private static let readAttempts = 5
 
@@ -78,8 +90,9 @@ struct IOAV: DisplayTransport {
     func get(_ service: AVService, _ feature: DDC.Feature) -> DDC.Value? {
         for attempt in 0..<Self.readAttempts {
             if attempt > 0 { usleep(Self.retryWait) }
-            guard send(service, DDC.getRequest(feature)) else { continue }
-            usleep(Self.readWait)
+            let waits = waits(for: service)
+            guard send(service, DDC.getRequest(feature), waits) else { continue }
+            usleep(waits.beforeRead)
             var reply = [UInt8](repeating: 0, count: DDC.getReplyLength)
             let status = reply.withUnsafeMutableBytes { buffer in
                 readI2C(service.reference, DDC.chipAddress, DDC.hostAddress, buffer.baseAddress!, UInt32(buffer.count))
@@ -90,6 +103,8 @@ struct IOAV: DisplayTransport {
             } catch .unsupported {
                 return nil
             } catch {
+                // The display was not ready in time; give it the long waits from now on.
+                service.needsLongWaits = true
                 continue
             }
         }
@@ -98,12 +113,16 @@ struct IOAV: DisplayTransport {
 
     @discardableResult
     func set(_ service: AVService, _ feature: DDC.Feature, value: Int) -> Bool {
-        send(service, DDC.setRequest(feature, value: value))
+        send(service, DDC.setRequest(feature, value: value), waits(for: service))
     }
 
-    private func send(_ service: AVService, _ packet: [UInt8]) -> Bool {
+    private func waits(for service: AVService) -> Waits {
+        service.needsLongWaits ? .long : .short
+    }
+
+    private func send(_ service: AVService, _ packet: [UInt8], _ waits: Waits) -> Bool {
         for _ in 0..<Self.writeCycles {
-            usleep(Self.writeWait)
+            if waits.beforeWrite > 0 { usleep(waits.beforeWrite) }
             let status = packet.withUnsafeBytes { buffer in
                 writeI2C(service.reference, DDC.chipAddress, DDC.hostAddress, buffer.baseAddress!, UInt32(buffer.count))
             }

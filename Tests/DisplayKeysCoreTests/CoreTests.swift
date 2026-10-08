@@ -209,10 +209,35 @@ import Testing
         #expect(Shortcut("") == nil)
     }
 
-    @Test func defaultsAreValid() {
-        for action in Shortcut.Action.allCases {
-            if let text = action.defaultShortcut { #expect(Shortcut(text) != nil) }
+    @Test func everyActionHasADistinctUsableDefault() {
+        let defaults = Shortcut.Action.allCases.compactMap(\.defaultShortcut)
+        #expect(defaults.count == Shortcut.Action.allCases.count)
+        #expect(Set(defaults).count == defaults.count)
+        for text in defaults { #expect(Shortcut(text)?.isUsable == true) }
+    }
+
+    @Test func writesItselfAsTextAndSymbols() {
+        #expect(Shortcut("Alt+Ctrl+Up")?.text == "ctrl+alt+up")
+        #expect(Shortcut("ctrl+alt+up")?.symbols == "⌃⌥↑")
+        #expect(Shortcut("cmd+shift+f5")?.symbols == "⇧⌘F5")
+        #expect(Shortcut("ctrl+alt+end")?.symbols == "⌃⌥↘")
+        for text in ["ctrl+alt+shift+cmd+pagedown", "f15", "shift+home"] {
+            #expect(Shortcut(text)?.text == text)
         }
+    }
+
+    @Test func isBuiltFromAKeyPress() {
+        #expect(Shortcut(keyCode: 0x7E, modifiers: [.control, .option])?.text == "ctrl+alt+up")
+        #expect(Shortcut(keyCode: 0x00, modifiers: [.control]) == nil)  // the A key
+        #expect(Shortcut.keyName(for: 0x67) == "f11")
+        #expect(Shortcut.keyName(for: 0x00) == nil)
+    }
+
+    @Test func aBareArrowIsNotUsableButABareFunctionKeyIs() {
+        #expect(Shortcut("up")?.isUsable == false)
+        #expect(Shortcut("pagedown")?.isUsable == false)
+        #expect(Shortcut("shift+up")?.isUsable == true)
+        #expect(Shortcut("f15")?.isUsable == true)
     }
 }
 
@@ -352,5 +377,42 @@ import Testing
         release.signal()
         queue.sync {}
         #expect(recorder.sent == ["brightness=1", "volume=4"])
+    }
+}
+
+@Suite struct AccessPolicyTests {
+    private func shouldAsk(granted: Bool = false, handled: String? = "old", disabled: Bool = false) -> Bool {
+        AccessPolicy.shouldAskAtLaunch(
+            isGranted: granted, handledBuild: handled, currentBuild: "new", askingIsDisabled: disabled)
+    }
+
+    @Test func asksOncePerBuildWhileAccessIsMissing() {
+        #expect(shouldAsk(handled: nil))
+        #expect(shouldAsk(handled: "old"))
+        #expect(!shouldAsk(handled: "new"))
+    }
+
+    @Test func neverAsksWhenAccessIsGrantedOrAskingIsOff() {
+        #expect(!shouldAsk(granted: true))
+        #expect(!shouldAsk(disabled: true))
+    }
+}
+
+@Suite struct CommandDetailTests {
+    @Test func knowsItsControlAndWhatToReadFirst() {
+        #expect(Command.step(.brightness, up: true, fine: false).featureToRead == .brightness)
+        #expect(Command.set(.volume, percent: 40).featureToRead == .volume)
+        #expect(Command.mute(.toggle).featureToRead == .mute)
+        #expect(Command.mute(.toggle).control == .volume)
+        #expect(Command.Control.volume.features == [.volume, .mute])
+    }
+
+    @Test func aStateReportsItsValuesByFeature() {
+        let state = DisplayState(
+            brightness: DDC.Value(current: 50, maximum: 100), volume: nil,
+            mute: DDC.Value(current: DDC.Mute.on, maximum: 2))
+        #expect(state.value(of: .brightness) == 50)
+        #expect(state.value(of: .volume) == nil)
+        #expect(state.value(of: .mute) == DDC.Mute.on)
     }
 }
