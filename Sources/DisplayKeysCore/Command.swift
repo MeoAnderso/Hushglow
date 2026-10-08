@@ -4,6 +4,14 @@ public enum Command: Equatable, Sendable {
         case brightness
         case volume
 
+        /// The control's name at the start of a sentence.
+        public var title: String {
+            switch self {
+            case .brightness: "Brightness"
+            case .volume: "Volume"
+            }
+        }
+
         /// The display features a control is made of.
         public var features: [DDC.Feature] {
             switch self {

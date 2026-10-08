@@ -210,17 +210,6 @@ final class OSD: NSObject {
     }
 }
 
-extension IndicatorLook {
-    /// For previews and tests.
-    static func preview(
-        _ style: IndicatorSettings.Style, reducesTransparency: Bool = false, increasesContrast: Bool = false
-    )
-        -> IndicatorLook
-    {
-        IndicatorLook(style: style, reducesTransparency: reducesTransparency, increasesContrast: increasesContrast)
-    }
-}
-
 /// Draws the indicator's marks: an icon with either a segmented level bar, one segment per
 /// coarse key step, or a short message when there is no level to show. The marks are light on
 /// a dark capsule and dark on a light one, with a soft halo so they read over anything.
@@ -292,14 +281,11 @@ final class OSDView: NSView {
             let origin = NSPoint(x: Self.iconLeft, y: ((bounds.height - image.size.height) / 2).rounded())
             image.draw(in: NSRect(origin: origin, size: image.size))
         }
-        switch indication {
-        case .level(let feedback):
+        if case .level(let feedback) = indication {
             drawBar(isMuted: feedback.kind == .muted)
             if showsPercentage { drawPercentage(feedback.kind == .muted ? 0 : feedback.percent) }
-        case .refused(let control): drawMessage("\(control.rawValue.capitalized) is locked")
-        case .unsupported(let control): drawMessage("No \(control.rawValue) control")
-        case .noDisplay: drawMessage("No display to control")
-        case .watchingKeys: drawMessage("Watching special keys")
+        } else if let message = indication.message {
+            drawMessage(message)
         }
     }
 

@@ -11,9 +11,9 @@ enum AppInfo {
     }
 
     /// The app's settings, also when the binary runs outside its bundle (for example from `.build`).
-    static var defaults: UserDefaults {
+    /// UserDefaults may be used from any thread, which the compiler has no way of knowing.
+    nonisolated(unsafe) static let defaults: UserDefaults =
         Bundle.main.bundleIdentifier == bundleID ? .standard : UserDefaults(suiteName: bundleID) ?? .standard
-    }
 
     /// The running app, when this process is not it.
     @MainActor static var otherInstance: NSRunningApplication? {
@@ -53,6 +53,18 @@ enum ShortcutSettings {
         case "": nil
         case let stored: stored
         }
+    }
+
+    /// The shortcut for an action; nil when it has none.
+    static func shortcut(for action: Shortcut.Action) -> Shortcut? {
+        text(for: action).flatMap(Shortcut.init)
+    }
+
+    /// Every action's shortcut, for checking a new one against them.
+    static var shortcuts: [Shortcut.Action: Shortcut] {
+        var shortcuts: [Shortcut.Action: Shortcut] = [:]
+        for action in Shortcut.Action.allCases { shortcuts[action] = shortcut(for: action) }
+        return shortcuts
     }
 
     /// Stores a shortcut; an empty text disables the action and nil restores its default.

@@ -166,7 +166,7 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         let holder = FlippedView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
         var y: CGFloat = 8
         for control in controls {
-            let shortcuts = control.actions.compactMap { ShortcutSettings.text(for: $0).flatMap(Shortcut.init) }
+            let shortcuts = control.actions.compactMap(ShortcutSettings.shortcut)
             guard !shortcuts.isEmpty else { continue }
 
             let glyph = NSImageView(frame: NSRect(x: 12, y: y + 4, width: 20, height: 20))

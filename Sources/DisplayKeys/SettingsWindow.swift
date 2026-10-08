@@ -228,7 +228,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         percentageBox?.state = IndicatorSettings.showsPercentage ? .on : .off
 
         for (action, field) in fields {
-            field.shortcut = ShortcutSettings.text(for: action).flatMap(Shortcut.init)
+            field.shortcut = ShortcutSettings.shortcut(for: action)
         }
         quarterStepsBox?.state = ShortcutSettings.quarterSteps ? .on : .off
 
@@ -270,12 +270,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let system = host.shortcutsUsedByMacOS
         var clashing: [Shortcut] = []
         for action in Shortcut.Action.allCases {
-            guard let shortcut = ShortcutSettings.text(for: action).flatMap(Shortcut.init) else { continue }
-            var claimed = [shortcut]
-            if ShortcutSettings.quarterSteps, action.repeatsWhileHeld, let quarter = shortcut.quarterStepVariant {
-                claimed.append(quarter)
-            }
-            clashing += claimed.filter(system.contains)
+            guard let shortcut = ShortcutSettings.shortcut(for: action) else { continue }
+            clashing += shortcut.claimed(for: action, quarterSteps: ShortcutSettings.quarterSteps)
+                .filter(system.contains)
         }
         guard !clashing.isEmpty else { return nil }
         let names = clashing.map(\.symbols).joined(separator: ", ")
@@ -287,12 +284,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     /// Why a recorded shortcut cannot be used for an action, in words; nil when it can.
     private func rejection(of shortcut: Shortcut?, for action: Shortcut.Action) -> String? {
-        var others: [Shortcut.Action: Shortcut] = [:]
-        for other in Shortcut.Action.allCases where other != action {
-            others[other] = ShortcutSettings.text(for: other).flatMap(Shortcut.init)
-        }
         switch Shortcut.check(
-            shortcut, for: action, others: others, quarterSteps: ShortcutSettings.quarterSteps,
+            shortcut, for: action, others: ShortcutSettings.shortcuts, quarterSteps: ShortcutSettings.quarterSteps,
             isUsedBySystem: host.shortcutsUsedByMacOS.contains)
         {
         case .usedBySystem:

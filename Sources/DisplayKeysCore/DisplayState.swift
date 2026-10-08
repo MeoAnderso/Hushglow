@@ -8,6 +8,27 @@ public enum Indication: Equatable, Sendable {
     case noDisplay
     /// The app is recording which special keys reach it, at someone's request.
     case watchingKeys
+
+    /// The words the indicator shows in place of a level; nil for a level.
+    public var message: String? {
+        switch self {
+        case .level: nil
+        case .refused(let control): "\(control.title) is locked"
+        case .unsupported(let control): "No \(control.rawValue) control"
+        case .noDisplay: "No display to control"
+        case .watchingKeys: "Watching special keys"
+        }
+    }
+
+    /// What VoiceOver is told: the level in words, or the same message the indicator shows.
+    public var spoken: String {
+        guard case .level(let feedback) = self else { return message ?? "" }
+        return switch feedback.kind {
+        case .brightness: "Brightness \(feedback.percent) percent"
+        case .volume: "Volume \(feedback.percent) percent"
+        case .muted: "Muted"
+        }
+    }
 }
 
 /// The level the on-screen indicator should show after a command.

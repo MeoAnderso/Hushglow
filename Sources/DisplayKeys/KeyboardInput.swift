@@ -105,7 +105,7 @@ final class KeyboardInput {
             let state = isDown ? 0xA : 0xB
             NSEvent.otherEvent(
                 with: .systemDefined, location: .zero, modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
-                timestamp: 0, windowNumber: 0, context: nil, subtype: Int16(MediaKeyEvent.auxControlButtonsSubtype),
+                timestamp: 0, windowNumber: 0, context: nil, subtype: Int16(AuxiliaryKey.eventSubtype),
                 data1: state << 8, data2: -1)?
                 .cgEvent?.post(tap: .cghidEventTap)
         }

@@ -40,12 +40,10 @@ final class Hotkeys: NSObject {
         let quarterSteps = ShortcutSettings.quarterSteps
         let system = Self.usedByMacOS()
         for (index, action) in Shortcut.Action.allCases.enumerated() {
-            guard let keys = ShortcutSettings.text(for: action), let shortcut = Shortcut(keys) else { continue }
-            register(shortcut, keys: keys, id: UInt32(index * 2), action: action, fine: false, system: system)
-            if quarterSteps, action.repeatsWhileHeld, let quarter = shortcut.quarterStepVariant {
-                register(
-                    quarter, keys: "shift+\(keys)", id: UInt32(index * 2 + 1), action: action, fine: true,
-                    system: system)
+            guard let shortcut = ShortcutSettings.shortcut(for: action) else { continue }
+            // The shortcut itself, then the one for quarter steps when there is one.
+            for (offset, keys) in shortcut.claimed(for: action, quarterSteps: quarterSteps).enumerated() {
+                register(keys, id: UInt32(index * 2 + offset), action: action, fine: offset == 1, system: system)
             }
         }
     }
@@ -135,9 +133,7 @@ final class Hotkeys: NSObject {
         handler(registration.action, registration.fine)
     }
 
-    private func register(
-        _ shortcut: Shortcut, keys: String, id: UInt32, action: Shortcut.Action, fine: Bool, system: [Shortcut]
-    ) {
+    private func register(_ shortcut: Shortcut, id: UInt32, action: Shortcut.Action, fine: Bool, system: [Shortcut]) {
         var reference: EventHotKeyRef?
         let status = RegisterEventHotKey(
             UInt32(shortcut.keyCode), Self.carbonFlags(shortcut.modifiers),
@@ -147,7 +143,7 @@ final class Hotkeys: NSObject {
         }
         statuses.append(
             AppStatus.ShortcutStatus(
-                action: action.rawValue, keys: keys, registered: registrations[id] != nil,
+                action: action.rawValue, keys: shortcut.text, registered: registrations[id] != nil,
                 usedByMacOS: system.contains(shortcut)))
     }
 

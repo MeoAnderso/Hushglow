@@ -5,13 +5,9 @@ import AppKit
 /// it. Dragging an app in adds it to the list, which nothing else does short of macOS's own
 /// alert.
 ///
-/// It is tied to the Settings window, not to which app is in front: it shows as soon as that
-/// window is on screen, sits just above it in the window order, and follows it. It goes away
-/// when access is granted, when it is closed, or when the window has been gone for a while.
-///
-/// It is meant to be noticed: a glow in the colours of the app's icon turns slowly around the
-/// round glass, a ring spreads from it now and then, and the arrow moves. With Reduce Motion
-/// the glow is still there and nothing moves.
+/// It goes with the Settings window, not with whichever app is in front, and goes away when
+/// access is granted, when it is closed, or when the window has been gone for a while. How it
+/// follows the window and why it looks as it does is in docs/DESIGN.md, under Liquid Glass.
 @MainActor
 final class PermissionHelper: NSObject {
     /// The size of what is seen: the arrow, the round glass and the caption.

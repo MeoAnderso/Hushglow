@@ -172,6 +172,17 @@ import Testing
         #expect(MediaKeyEvent(subtype: 7, data1: 0x0000_0A00) == nil)  // mouse buttons
         #expect(MediaKeyEvent(subtype: 8, data1: 0x0010_0A00) == nil)  // play/pause
     }
+
+    /// The key watch names every key of this kind, the ones the app does not act on too.
+    @Test func namesEveryAuxiliaryKey() {
+        let playPause = AuxiliaryKey(subtype: 8, data1: 0x0010_0A00)
+        #expect(playPause?.name == "play/pause" && playPause?.isDown == true)
+        #expect(AuxiliaryKey(subtype: 8, data1: 0x0007_0B00)?.name == "mute")
+        #expect(AuxiliaryKey(subtype: 8, data1: 0x0063_0A01)?.name == "code 99")
+        #expect(AuxiliaryKey(subtype: 7, data1: 0x0000_0A00) == nil)
+        // Neither pressed nor released.
+        #expect(AuxiliaryKey(subtype: 8, data1: 0x0000_0C00) == nil)
+    }
 }
 
 @Suite struct CommandTests {
@@ -560,6 +571,36 @@ import Testing
     @Test func theQuarterStepVariantAddsShift() {
         #expect(Shortcut("ctrl+alt+up")?.quarterStepVariant == Shortcut("ctrl+alt+shift+up"))
         #expect(Shortcut("shift+f15")?.quarterStepVariant == nil)
+    }
+
+    @Test func aShortcutClaimsItsShiftVariantOnlyForQuarterSteps() throws {
+        let up = try #require(Shortcut("ctrl+alt+up"))
+        let quarter = try #require(Shortcut("ctrl+alt+shift+up"))
+        #expect(up.claimed(for: .brightnessUp, quarterSteps: false) == [up])
+        #expect(up.claimed(for: .brightnessUp, quarterSteps: true) == [up, quarter])
+        // Mute does not step, and a shortcut that has Shift already has no variant.
+        #expect(up.claimed(for: .mute, quarterSteps: true) == [up])
+        #expect(quarter.claimed(for: .volumeUp, quarterSteps: true) == [quarter])
+    }
+}
+
+@Suite struct IndicationTests {
+    /// The indicator and VoiceOver take their words from the one place.
+    @Test func hasAMessageForEverythingButALevel() {
+        #expect(Indication.level(Feedback(kind: .brightness, fraction: 0.5)).message == nil)
+        #expect(Indication.refused(.brightness).message == "Brightness is locked")
+        #expect(Indication.unsupported(.volume).message == "No volume control")
+        #expect(Indication.noDisplay.message == "No display to control")
+        #expect(Indication.watchingKeys.message == "Watching special keys")
+    }
+
+    @Test func describesItselfForVoiceOver() {
+        #expect(Indication.level(Feedback(kind: .brightness, fraction: 0.5625)).spoken == "Brightness 56 percent")
+        #expect(Indication.level(Feedback(kind: .volume, fraction: 0.3)).spoken == "Volume 30 percent")
+        #expect(Indication.level(Feedback(kind: .muted, fraction: 0.3)).spoken == "Muted")
+        for indication in [Indication.refused(.volume), .unsupported(.brightness), .noDisplay, .watchingKeys] {
+            #expect(indication.spoken == indication.message)
+        }
     }
 }
 

@@ -101,6 +101,7 @@ public struct Shortcut: Equatable, Sendable {
 
     /// Checks a shortcut chosen for an action against the shortcuts of the other actions and
     /// those of macOS. `shortcut` is nil when the pressed key is not one a shortcut can use.
+    /// `others` may hold the action's own shortcut too; it is not counted against itself.
     /// With quarter steps on, each stepping shortcut also claims its Shift variant.
     public static func check(
         _ shortcut: Shortcut?, for action: Action, others: [Action: Shortcut], quarterSteps: Bool,
@@ -108,18 +109,21 @@ public struct Shortcut: Equatable, Sendable {
     ) -> Rejection? {
         guard let shortcut else { return .unsupportedKey }
         guard shortcut.isUsable else { return .needsModifier }
-        func claims(_ shortcut: Shortcut, _ action: Action) -> [Shortcut] {
-            guard quarterSteps, action.repeatsWhileHeld, let quarter = shortcut.quarterStepVariant else {
-                return [shortcut]
-            }
-            return [shortcut, quarter]
-        }
-        let wanted = claims(shortcut, action)
+        let wanted = shortcut.claimed(for: action, quarterSteps: quarterSteps)
         for other in Action.allCases where other != action {
             guard let taken = others[other] else { continue }
-            if claims(taken, other).contains(where: wanted.contains) { return .usedBy(other) }
+            if taken.claimed(for: other, quarterSteps: quarterSteps).contains(where: wanted.contains) {
+                return .usedBy(other)
+            }
         }
         return isUsedBySystem(shortcut) ? .usedBySystem : nil
+    }
+
+    /// The keys the shortcut takes when it is given to an action: itself and, with quarter
+    /// steps on and for an action that steps, the same keys with Shift.
+    public func claimed(for action: Action, quarterSteps: Bool) -> [Shortcut] {
+        guard quarterSteps, action.repeatsWhileHeld, let quarter = quarterStepVariant else { return [self] }
+        return [self, quarter]
     }
 
     /// The same keys with Shift added, which is what a quarter step is registered on; nil when

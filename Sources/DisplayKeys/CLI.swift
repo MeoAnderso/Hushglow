@@ -117,13 +117,9 @@ enum CLI {
                         "Not a valid shortcut: \(keys). Use modifiers (ctrl, alt, shift, cmd) plus an arrow, "
                             + "page or function key, for example ctrl+alt+up or shift+f15.", status: 64)
                 }
-                var others: [Shortcut.Action: Shortcut] = [:]
-                for other in Shortcut.Action.allCases where other != action {
-                    others[other] = ShortcutSettings.text(for: other).flatMap(Shortcut.init)
-                }
                 switch Shortcut.check(
-                    parsed, for: action, others: others, quarterSteps: ShortcutSettings.quarterSteps,
-                    isUsedBySystem: Hotkeys.usedByMacOS().contains)
+                    parsed, for: action, others: ShortcutSettings.shortcuts,
+                    quarterSteps: ShortcutSettings.quarterSteps, isUsedBySystem: Hotkeys.usedByMacOS().contains)
                 {
                 case .needsModifier:
                     return fail(

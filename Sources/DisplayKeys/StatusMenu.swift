@@ -155,7 +155,7 @@ final class MenuControls: NSObject {
     /// The shortcuts in one quiet line, as a reminder.
     private static func hint() -> NSAttributedString {
         func keys(_ actions: [Shortcut.Action]) -> String? {
-            let symbols = actions.compactMap { ShortcutSettings.text(for: $0).flatMap(Shortcut.init)?.symbols }
+            let symbols = actions.compactMap { ShortcutSettings.shortcut(for: $0)?.symbols }
             return symbols.isEmpty ? nil : symbols.joined(separator: " ")
         }
         let parts = [

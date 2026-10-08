@@ -6,7 +6,6 @@ import Foundation
 @MainActor
 final class AudioRoute {
     private(set) var outputIsDisplay = false
-    var onChange: (() -> Void)?
     private var isListening = false
 
     /// Follows changes of the default output device; event-driven, no polling.
@@ -23,11 +22,8 @@ final class AudioRoute {
     }
 
     func refresh() {
-        let isDisplay =
+        outputIsDisplay =
             Self.defaultOutputDevice().map { Self.isDisplayTransport($0) && !Self.hasVolumeControl($0) } ?? false
-        guard isDisplay != outputIsDisplay else { return }
-        outputIsDisplay = isDisplay
-        onChange?()
     }
 
     private static func propertyAddress(

@@ -5,7 +5,8 @@
 # to the app's signature: with a certificate the signature stays the same across builds;
 # without one the app is ad-hoc signed and every rebuild looks like a different app.
 # The certificate is taken from CODESIGN_IDENTITY, else one named "DisplayKeys Dev" if it
-# exists in the keychain (see README, "Keeping the permission across rebuilds").
+# exists in the keychain (see README, "Turning on the keyboard's keys, and again after a
+# rebuild").
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -10,24 +10,9 @@ final class Announcer: NSObject {
 
     func announce(_ indication: Indication) {
         guard NSWorkspace.shared.isVoiceOverEnabled else { return }
-        pending = Self.words(for: indication)
+        pending = indication.spoken
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(speak), object: nil)
         perform(#selector(speak), with: nil, afterDelay: Self.settleDelay)
-    }
-
-    static func words(for indication: Indication) -> String {
-        switch indication {
-        case .level(let feedback):
-            switch feedback.kind {
-            case .brightness: "Brightness \(feedback.percent) percent"
-            case .volume: "Volume \(feedback.percent) percent"
-            case .muted: "Muted"
-            }
-        case .refused(let control): "\(control.rawValue.capitalized) is locked by the display"
-        case .unsupported(let control): "This display has no \(control.rawValue) control"
-        case .noDisplay: "No display to control"
-        case .watchingKeys: "Watching special keys"
-        }
     }
 
     @objc private func speak() {
