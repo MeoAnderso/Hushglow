@@ -240,6 +240,48 @@ extension GlassWindowTests {
         #expect(!osd.isOnScreen)
     }
 
+    /// A picture of the bar part of the way between two levels. Nothing in this process moves
+    /// it there: the view is not asked to draw and no timer of the app's runs. The indicator's
+    /// clock is slowed twenty times, so that the middle of an eighth of a second can be caught
+    /// whatever else the tests are doing. Runs only when PREVIEW_DIR is set.
+    @Test func theBarGlidesBetweenLevels() async throws {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let size = NSSize(width: OSD.size.width + 48, height: OSD.size.height + 48)
+        let frame = NSRect(origin: NSPoint(x: 420, y: 140), size: size)
+        let backdropWindow = backdropWindow(frame, DuskView(frame: NSRect(origin: .zero, size: size)))
+        let overlay = clearPanel(frame)
+        overlay.appearance = NSAppearance(named: .darkAqua)
+        let holder = NSView(frame: NSRect(origin: .zero, size: size))
+        overlay.contentView = holder
+        let indicator = OSDView(frame: NSRect(origin: .zero, size: OSD.size))
+        indicator.show(.level(Feedback(kind: .brightness, fraction: 0.25)), animated: false)
+        let look = IndicatorLook(style: .glass, reducesTransparency: false, increasesContrast: false)
+        let capsule = OSD.capsule(around: indicator, look: look)
+        capsule.setFrameOrigin(NSPoint(x: 24, y: 24))
+        holder.addSubview(capsule)
+        backdropWindow.orderFrontRegardless()
+        backdropWindow.addChildWindow(overlay, ordered: .above)
+        overlay.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(600))
+
+        let from = indicator.lit.bounds.width
+        indicator.layer?.speed = 0.05
+        indicator.show(.level(Feedback(kind: .brightness, fraction: 1)), animated: true)
+        let to = indicator.lit.bounds.width
+        var caught: CGFloat?
+        for _ in 0..<200 where caught == nil {
+            try await Task.sleep(for: .milliseconds(10))
+            let width = try #require(indicator.lit.presentation()).bounds.width
+            if width > from + 20, width < to - 20 { caught = width }
+        }
+        #expect(caught != nil, "the bar was never seen between \(from) and \(to) points")
+        try writePreview(try photograph([overlay, backdropWindow], size: size), named: "indicator-glide")
+        backdropWindow.removeChildWindow(overlay)
+        overlay.close()
+        backdropWindow.close()
+    }
+
     /// Pictures of the capsules the app really builds, composited over a page by the window
     /// server. Only this process's own windows are captured. Runs only when PREVIEW_DIR is set,
     /// since it puts a window on screen for a moment.

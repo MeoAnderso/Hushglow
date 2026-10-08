@@ -92,6 +92,57 @@ import Testing
         try writePreviews(of: view(.watchingKeys), named: "indicator-watching")
     }
 
+    /// The marks are layers, so there is nothing of the view's own for AppKit to call when a
+    /// frame is due: the method it would call is still the one every view inherits.
+    @Test func drawsNothingItself() {
+        let selector = #selector(NSView.draw(_:))
+        #expect(class_getInstanceMethod(OSDView.self, selector) == class_getInstanceMethod(NSView.self, selector))
+    }
+
+    /// A step is one layer changing its width, and Core Animation plays the way there.
+    @Test func aStepGlidesFromWhereTheBarWas() throws {
+        let view = view(level(.brightness, 0.5))
+        // The bar is 182 points: sixteen segments of 9.5 with gaps of 2. Eight end at 90.
+        #expect(view.lit.bounds.width == 90)
+        #expect(view.lit.animation(forKey: OSDView.glideKey) == nil)
+
+        view.show(level(.brightness, 0.5625), animated: true)
+        #expect(view.lit.bounds.width == 101.5)
+        let glide = try #require(view.lit.animation(forKey: OSDView.glideKey) as? CABasicAnimation)
+        #expect(glide.keyPath == "bounds.size.width")
+        #expect(glide.fromValue as? CGFloat == 90 && glide.toValue as? CGFloat == 101.5)
+        #expect(glide.duration == OSDView.glideDuration)
+
+        // With Reduce Motion, or when the indicator was not on screen, the bar is simply there.
+        view.show(level(.brightness, 0.25), animated: false)
+        #expect(view.lit.bounds.width == 44)
+        #expect(view.lit.animation(forKey: OSDView.glideKey) == nil)
+    }
+
+    @Test func aLevelAfterAMessageDoesNotGlide() {
+        let view = view(level(.volume, 0.25))
+        view.show(.noDisplay, animated: true)
+        view.show(level(.volume, 0.75), animated: true)
+        #expect(view.lit.bounds.width == 136)
+        #expect(view.lit.animation(forKey: OSDView.glideKey) == nil)
+    }
+
+    /// Each segment is lit by its own share, and the gaps between them count for nothing.
+    @Test func aQuarterStepLightsAQuarterOfASegment() throws {
+        func width(_ sixtyFourths: Double, percentage: Bool = false) -> CGFloat {
+            view(level(.brightness, sixtyFourths / 64), percentage: percentage).lit.bounds.width
+        }
+        #expect(width(0) == 0)
+        #expect(width(1) == 2.375)
+        #expect(width(4) == 9.5)
+        // Eight whole segments with their gaps, 92 points, and three quarters of the ninth.
+        #expect(width(35) == 99.125)
+        #expect(width(64) == 182)
+        // Beside the percentage the segments are 7 points wide.
+        #expect(width(35, percentage: true) == 77.25)
+        #expect(width(64, percentage: true) == 142)
+        try writePreviews(of: view(level(.brightness, 35.0 / 64), percentage: true), named: "indicator-quarter-step")
+    }
 }
 
 // MARK: Windows and menu

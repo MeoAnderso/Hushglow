@@ -210,9 +210,13 @@ final class OSD: NSObject {
     }
 }
 
-/// Draws the indicator's marks: an icon with either a segmented level bar, one segment per
-/// coarse key step, or a short message when there is no level to show. The marks are light on
-/// a dark capsule and dark on a light one, with a soft halo so they read over anything.
+/// The indicator's marks: an icon with either a segmented level bar, one segment per coarse
+/// key step, or a short message when there is no level to show. The marks are light on a dark
+/// capsule and dark on a light one, with a soft halo so they read over anything.
+///
+/// Every mark is a layer and the view draws nothing. The bar's glide between steps is one
+/// layer changing its width, which Core Animation plays outside the app's process; drawn by
+/// hand, each frame of it was sixteen clipped segments, a shadow and the text again.
 final class OSDView: NSView {
     private static let segmentCount = Level.coarseSteps
     private static let iconLeft: CGFloat = 16
@@ -221,43 +225,79 @@ final class OSDView: NSView {
     private static let percentageWidth: CGFloat = 40
     private static let barHeight: CGFloat = 8
     private static let segmentGap: CGFloat = 2
-    private static let glideDuration: TimeInterval = 0.12
+    private static let segmentRadius: CGFloat = 2
+    static let glideDuration: TimeInterval = 0.12
+    static let glideKey = "glide"
 
     private(set) var indication = Indication.level(Feedback(kind: .brightness, fraction: 0))
-    var showsPercentage = false
-    /// Draws the unlit part of the bar more strongly, for the Increase Contrast setting.
-    var isHighContrast = false
 
-    /// The level the bar is drawn at; animated so the bar glides between steps.
-    @objc private dynamic var shownFraction: CGFloat = 0 {
-        didSet { needsDisplay = true }
+    var showsPercentage = false {
+        didSet { if showsPercentage != oldValue { update(glides: false) } }
     }
 
-    private var symbols: [String: NSImage] = [:]
+    /// Shows the unlit part of the bar more strongly, for the Increase Contrast setting.
+    var isHighContrast = false {
+        didSet { if isHighContrast != oldValue { update(glides: false) } }
+    }
 
-    override class func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
-        key == "shownFraction" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
+    private let icon = CALayer()
+    /// The whole bar, unlit. It changes only with the room the bar has.
+    private let track = CAShapeLayer()
+    /// Cuts the lit layer down to the segments.
+    private let bar = CALayer()
+    private let segments = CAShapeLayer()
+    /// The lit part: a plain rectangle that reaches from the bar's left end to the level.
+    let lit = CALayer()
+    private let percentage = TextMark()
+    private let message = TextMark()
+
+    private var symbols: [String: NSImage] = [:]
+    private var shownSymbol: String?
+    /// The width the segments were last laid out for.
+    private var barWidth: CGFloat = 0
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // The view hosts its layers: AppKit then never asks it to draw.
+        layer = CALayer()
+        wantsLayer = true
+        bar.mask = segments
+        bar.addSublayer(lit)
+        lit.anchorPoint = .zero
+        percentage.alignsRight = true
+        for part in [icon, track, bar, percentage, message] { layer?.addSublayer(part) }
+        update(glides: false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("OSDView is created in code")
     }
 
     func show(_ indication: Indication, animated: Bool) {
         let wasLevel: Bool
         if case .level = self.indication { wasLevel = true } else { wasLevel = false }
         self.indication = indication
-        needsDisplay = true
-        guard case .level(let feedback) = indication else { return }
+        update(glides: animated && wasLevel)
+    }
 
-        let target = CGFloat(min(max(feedback.barPosition, 0), 1))
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = animated && wasLevel ? Self.glideDuration : 0
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            animator().shownFraction = target
-        }
-        if !(animated && wasLevel) { shownFraction = target }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        shownSymbol = nil
+        update(glides: false)
     }
 
     override func viewDidChangeEffectiveAppearance() {
+        // Layers hold fixed colours, and so do the symbols made for them.
         symbols.removeAll()
-        needsDisplay = true
+        shownSymbol = nil
+        update(glides: false)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        shownSymbol = nil
+        update(glides: false)
     }
 
     private var isDark: Bool {
@@ -268,76 +308,142 @@ final class OSDView: NSView {
         isDark ? .white : NSColor(white: 0.08, alpha: 1)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        let halo = NSShadow()
-        halo.shadowColor = isDark ? NSColor(white: 0, alpha: 0.55) : NSColor(white: 1, alpha: 0.7)
-        halo.shadowBlurRadius = 3
-        halo.shadowOffset = NSSize(width: 0, height: -0.5)
-        halo.set()
-
-        if let image = symbol(named: symbolName) {
-            let origin = NSPoint(x: Self.iconLeft, y: ((bounds.height - image.size.height) / 2).rounded())
-            image.draw(in: NSRect(origin: origin, size: image.size))
-        }
-        if case .level(let feedback) = indication {
-            drawBar(isMuted: feedback.kind == .muted)
-            if showsPercentage { drawPercentage(feedback.kind == .muted ? 0 : feedback.percent) }
-        } else if let message = indication.message {
-            drawMessage(message)
-        }
+    /// Layers do not take their sharpness from the window by themselves.
+    private var scale: CGFloat {
+        window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
     }
 
-    private func drawBar(isMuted: Bool) {
-        let right = Self.rightInset + (showsPercentage ? Self.percentageWidth : 0)
-        let barWidth = bounds.width - Self.barLeft - right
-        let gaps = Self.segmentGap * CGFloat(Self.segmentCount - 1)
-        let segmentWidth = (barWidth - gaps) / CGFloat(Self.segmentCount)
-        let filled = shownFraction * CGFloat(Self.segmentCount)
-        let litColor = ink.withAlphaComponent(isMuted ? 0.4 : 1)
-        let unlitColor = ink.withAlphaComponent(isHighContrast ? 0.5 : 0.3)
+    // MARK: Layers
 
+    /// Brings every layer in line with what is to be shown. Only the lit layer's width ever
+    /// moves; everything else changes at once, where a layer left to itself would ease into
+    /// each new value over a quarter of a second.
+    private func update(glides: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        let scale = scale
+        for part in [track, segments] { part.contentsScale = scale }
+        for part in [icon, track, lit, percentage, message] {
+            part.shadowColor = (isDark ? NSColor.black : .white).cgColor
+            part.shadowOpacity = isDark ? 0.55 : 0.7
+            // Half the blur of 3 points the marks were drawn with: a layer counts it that way.
+            part.shadowRadius = 1.5
+            part.shadowOffset = CGSize(width: 0, height: -0.5)
+        }
+        showSymbol(scale: scale)
+
+        guard case .level(let feedback) = indication else {
+            for part in [track, bar, percentage] { part.isHidden = true }
+            message.isHidden = false
+            show(indication.message ?? "", in: message, size: 13, from: Self.barLeft, to: bounds.width, scale: scale)
+            return
+        }
+        let isMuted = feedback.kind == .muted
+        message.isHidden = true
+        for part in [track, bar] { part.isHidden = false }
+        percentage.isHidden = !showsPercentage
+        if showsPercentage {
+            let right = bounds.width - Self.rightInset + 4
+            show(
+                "\(isMuted ? 0 : feedback.percent)%", in: percentage, size: 12, digitsAlign: true,
+                from: right - Self.percentageWidth - 4, to: right, scale: scale)
+        }
+        layOutBar()
+        track.fillColor = ink.withAlphaComponent(isHighContrast ? 0.5 : 0.3).cgColor
+        lit.backgroundColor = ink.withAlphaComponent(isMuted ? 0.4 : 1).cgColor
+        fill(to: CGFloat(min(max(feedback.barPosition, 0), 1)), glides: glides)
+    }
+
+    private func showSymbol(scale: CGFloat) {
+        let name = symbolName
+        guard name != shownSymbol else { return }
+        shownSymbol = name
+        guard let image = symbol(named: name) else {
+            icon.contents = nil
+            return
+        }
+        icon.contentsScale = scale
+        icon.contents = image.layerContents(forContentsScale: scale)
+        icon.frame = CGRect(
+            origin: CGPoint(x: Self.iconLeft, y: ((bounds.height - image.size.height) / 2).rounded()), size: image.size)
+    }
+
+    private func show(
+        _ string: String, in mark: TextMark, size: CGFloat, digitsAlign: Bool = false, from left: CGFloat,
+        to right: CGFloat, scale: CGFloat
+    ) {
+        let font =
+            digitsAlign
+            ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium)
+            : NSFont.systemFont(ofSize: size, weight: .medium)
+        let text = NSAttributedString(string: string, attributes: [.font: font, .foregroundColor: ink])
+        // Where the text was drawn before, with whole points for the layer to lie on.
+        let frame = CGRect(
+            x: left, y: ((bounds.height - text.size().height) / 2).rounded(), width: right - left,
+            height: text.size().height.rounded(.up))
+        mark.show(text, in: frame, scale: scale)
+    }
+
+    /// The room the bar has: less when the percentage stands beside it.
+    private var roomForBar: CGFloat {
+        bounds.width - Self.barLeft - Self.rightInset - (showsPercentage ? Self.percentageWidth : 0)
+    }
+
+    private var segmentWidth: CGFloat {
+        (roomForBar - Self.segmentGap * CGFloat(Self.segmentCount - 1)) / CGFloat(Self.segmentCount)
+    }
+
+    private func layOutBar() {
+        let width = roomForBar
+        let frame = CGRect(
+            x: Self.barLeft, y: (bounds.height - Self.barHeight) / 2, width: max(width, 0), height: Self.barHeight)
+        guard width != barWidth || bar.frame != frame else { return }
+        barWidth = width
+        let path = CGMutablePath()
         for index in 0..<Self.segmentCount {
-            let segment = NSRect(
-                x: Self.barLeft + CGFloat(index) * (segmentWidth + Self.segmentGap),
-                y: (bounds.height - Self.barHeight) / 2,
-                width: segmentWidth,
+            let segment = CGRect(
+                x: CGFloat(index) * (segmentWidth + Self.segmentGap), y: 0, width: max(segmentWidth, 0),
                 height: Self.barHeight)
-            let path = NSBezierPath(roundedRect: segment, xRadius: 2, yRadius: 2)
-            unlitColor.setFill()
-            path.fill()
-
-            // Quarter steps, and the glide between steps, fill a segment partially.
-            let amount = min(max(filled - CGFloat(index), 0), 1)
-            guard amount > 0 else { continue }
-            NSGraphicsContext.saveGraphicsState()
-            path.addClip()
-            litColor.setFill()
-            NSRect(x: segment.minX, y: segment.minY, width: segment.width * amount, height: segment.height).fill()
-            NSGraphicsContext.restoreGraphicsState()
+            let radius = min(Self.segmentRadius, segment.width / 2)
+            path.addRoundedRect(in: segment, cornerWidth: radius, cornerHeight: radius)
         }
+        track.frame = frame
+        bar.frame = frame
+        segments.frame = bar.bounds
+        track.path = path
+        segments.path = path
     }
 
-    private func drawPercentage(_ percent: Int) {
-        let text = NSAttributedString(
-            string: "\(percent)%",
-            attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
-                .foregroundColor: ink,
-            ])
-        let size = text.size()
-        text.draw(
-            at: NSPoint(
-                x: bounds.width - Self.rightInset + 4 - size.width, y: ((bounds.height - size.height) / 2).rounded()))
+    /// How far the lit layer reaches for a level. Each segment is filled by its own share, so
+    /// that a quarter step lights a quarter of a segment, and the gaps count for nothing. A
+    /// whole number of segments ends with the last of them: the lit layer's halo would
+    /// otherwise fall on the segment after it.
+    func litWidth(for fraction: CGFloat) -> CGFloat {
+        let filled = fraction * CGFloat(Self.segmentCount)
+        let whole = filled.rounded(.down)
+        let pitch = segmentWidth + Self.segmentGap
+        if filled > whole { return whole * pitch + (filled - whole) * segmentWidth }
+        return max(whole * pitch - Self.segmentGap, 0)
     }
 
-    private func drawMessage(_ text: String) {
-        let message = NSAttributedString(
-            string: text, attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: ink])
-        let size = message.size()
-        message.draw(at: NSPoint(x: Self.barLeft, y: ((bounds.height - size.height) / 2).rounded()))
+    private func fill(to fraction: CGFloat, glides: Bool) {
+        let width = litWidth(for: fraction)
+        // A glide that is cut short goes on from where it had got to.
+        let from = lit.presentation()?.bounds.width ?? lit.bounds.width
+        lit.bounds = CGRect(x: 0, y: 0, width: width, height: Self.barHeight)
+        guard glides else { return lit.removeAnimation(forKey: Self.glideKey) }
+        guard from != width else { return }
+        let glide = CABasicAnimation(keyPath: "bounds.size.width")
+        glide.fromValue = from
+        glide.toValue = width
+        glide.duration = Self.glideDuration
+        glide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        lit.add(glide, forKey: Self.glideKey)
     }
+
+    // MARK: Symbols
 
     private var symbolName: String {
         switch indication {
@@ -369,5 +475,28 @@ final class OSDView: NSView {
             .withSymbolConfiguration(configuration)
         symbols[name] = image
         return image
+    }
+}
+
+/// A line of text as a layer. The text is drawn once, when it changes, into a picture that the
+/// layer then holds. A text layer would write it too, but thinner than AppKit writes text in
+/// a view, and the indicator is meant to look as it did when it was drawn.
+private final class TextMark: CALayer {
+    /// Whether the text ends at the layer's right edge instead of starting at its left one.
+    var alignsRight = false
+    private var shown: NSAttributedString?
+
+    func show(_ text: NSAttributedString, in frame: CGRect, scale: CGFloat) {
+        let isSamePicture = text == shown && scale == contentsScale && frame.size == bounds.size
+        self.frame = frame
+        guard !isSamePicture else { return }
+        shown = text
+        contentsScale = scale
+        let alignsRight = alignsRight
+        let picture = NSImage(size: frame.size, flipped: false) { box in
+            text.draw(at: NSPoint(x: alignsRight ? box.maxX - text.size().width : 0, y: 0))
+            return true
+        }
+        contents = picture.layerContents(forContentsScale: scale)
     }
 }
