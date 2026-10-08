@@ -38,17 +38,62 @@ final class Hotkeys: NSObject {
         unregisterAll()
         installEventHandler()
         let quarterSteps = ShortcutSettings.quarterSteps
+        let system = Self.usedByMacOS()
         for (index, action) in Shortcut.Action.allCases.enumerated() {
             guard let keys = ShortcutSettings.text(for: action), let shortcut = Shortcut(keys) else { continue }
-            register(
-                shortcut.keyCode, shortcut.modifiers, keys: keys, id: UInt32(index * 2), action: action, fine: false)
-            if quarterSteps, action.repeatsWhileHeld, !shortcut.modifiers.contains(.shift) {
-                let modifiers = shortcut.modifiers.union(.shift)
+            register(shortcut, keys: keys, id: UInt32(index * 2), action: action, fine: false, system: system)
+            if quarterSteps, action.repeatsWhileHeld, let quarter = shortcut.quarterStepVariant {
                 register(
-                    shortcut.keyCode, modifiers, keys: "shift+\(keys)", id: UInt32(index * 2 + 1), action: action,
-                    fine: true)
+                    quarter, keys: "shift+\(keys)", id: UInt32(index * 2 + 1), action: action, fine: true,
+                    system: system)
             }
         }
+    }
+
+    /// The shortcuts macOS has switched on for itself, such as Mission Control on Ctrl-Up, as
+    /// far as they use keys this app's shortcuts can use. macOS accepts the registration of a
+    /// shortcut it uses itself, so this list is the only way to notice such a clash.
+    static func usedByMacOS() -> [Shortcut] {
+        var list: Unmanaged<CFArray>?
+        guard CopySymbolicHotKeys(&list) == noErr, let entries = list?.takeRetainedValue() as? [[String: Any]]
+        else { return [] }
+        return entries.compactMap { entry in
+            guard entry[kHISymbolicHotKeyEnabled as String] as? Bool == true,
+                let keyCode = entry[kHISymbolicHotKeyCode as String] as? Int,
+                let flags = entry[kHISymbolicHotKeyModifiers as String] as? Int
+            else { return nil }
+            return shortcut(keyCode: keyCode, carbonFlags: flags)
+        }
+    }
+
+    /// A shortcut from Carbon's form. Other flags are ignored: macOS sets one on every arrow
+    /// and function key, whether or not Fn is held.
+    static func shortcut(keyCode: Int, carbonFlags flags: Int) -> Shortcut? {
+        var modifiers: Shortcut.Modifiers = []
+        if flags & cmdKey != 0 { modifiers.insert(.command) }
+        if flags & shiftKey != 0 { modifiers.insert(.shift) }
+        if flags & optionKey != 0 { modifiers.insert(.option) }
+        if flags & controlKey != 0 { modifiers.insert(.control) }
+        return Shortcut(keyCode: keyCode, modifiers: modifiers)
+    }
+
+    /// Tries the shortcut and lets it go again.
+    static func canRegister(_ shortcut: Shortcut) -> Bool {
+        var reference: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            UInt32(shortcut.keyCode), carbonFlags(shortcut.modifiers), EventHotKeyID(signature: signature, id: .max),
+            GetEventDispatcherTarget(), 0, &reference)
+        if let reference { UnregisterEventHotKey(reference) }
+        return status == noErr
+    }
+
+    private static func carbonFlags(_ modifiers: Shortcut.Modifiers) -> UInt32 {
+        var flags = 0
+        if modifiers.contains(.command) { flags |= cmdKey }
+        if modifiers.contains(.shift) { flags |= shiftKey }
+        if modifiers.contains(.option) { flags |= optionKey }
+        if modifiers.contains(.control) { flags |= controlKey }
+        return UInt32(flags)
     }
 
     func unregisterAll() {
@@ -91,24 +136,19 @@ final class Hotkeys: NSObject {
     }
 
     private func register(
-        _ keyCode: Int, _ modifiers: Shortcut.Modifiers, keys: String, id: UInt32, action: Shortcut.Action, fine: Bool
+        _ shortcut: Shortcut, keys: String, id: UInt32, action: Shortcut.Action, fine: Bool, system: [Shortcut]
     ) {
-        var carbonModifiers = 0
-        if modifiers.contains(.command) { carbonModifiers |= cmdKey }
-        if modifiers.contains(.shift) { carbonModifiers |= shiftKey }
-        if modifiers.contains(.option) { carbonModifiers |= optionKey }
-        if modifiers.contains(.control) { carbonModifiers |= controlKey }
-
         var reference: EventHotKeyRef?
         let status = RegisterEventHotKey(
-            UInt32(keyCode), UInt32(carbonModifiers), EventHotKeyID(signature: Self.signature, id: id),
-            GetEventDispatcherTarget(), 0, &reference
-        )
+            UInt32(shortcut.keyCode), Self.carbonFlags(shortcut.modifiers),
+            EventHotKeyID(signature: Self.signature, id: id), GetEventDispatcherTarget(), 0, &reference)
         if status == noErr, let reference {
             registrations[id] = Registration(reference: reference, action: action, fine: fine)
         }
         statuses.append(
-            AppStatus.ShortcutStatus(action: action.rawValue, keys: keys, registered: registrations[id] != nil))
+            AppStatus.ShortcutStatus(
+                action: action.rawValue, keys: keys, registered: registrations[id] != nil,
+                usedByMacOS: system.contains(shortcut)))
     }
 
     private func installEventHandler() {

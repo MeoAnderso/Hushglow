@@ -101,9 +101,23 @@ enum CLI {
                         "Not a valid shortcut: \(keys). Use modifiers (ctrl, alt, shift, cmd) plus an arrow, "
                             + "page or function key, for example ctrl+alt+up or shift+f15.", status: 64)
                 }
-                guard parsed.isUsable else {
+                var others: [Shortcut.Action: Shortcut] = [:]
+                for other in Shortcut.Action.allCases where other != action {
+                    others[other] = ShortcutSettings.text(for: other).flatMap(Shortcut.init)
+                }
+                switch Shortcut.check(
+                    parsed, for: action, others: others, quarterSteps: ShortcutSettings.quarterSteps,
+                    isUsedBySystem: Hotkeys.usedByMacOS().contains)
+                {
+                case .needsModifier:
                     return fail(
                         "\(keys) on its own would take that key away from every app; add a modifier.", status: 64)
+                case .usedBy(let other):
+                    return fail("\(other.rawValue) already uses \(keys).", status: 64)
+                case .usedBySystem:
+                    return fail("macOS uses \(keys) for a shortcut of its own. \(systemShortcutAdvice)", status: 64)
+                case .unsupportedKey, nil:
+                    break
                 }
                 ShortcutSettings.set(parsed.text, for: action)
             }
@@ -118,10 +132,20 @@ enum CLI {
             return succeed("Saved. \(notRunning)")
         }
         let refused = status.shortcuts.filter { !$0.registered }
+        let clashing = status.shortcuts.filter(\.usedByMacOS)
         for entry in status.shortcuts { print(describe(entry)) }
-        return refused.isEmpty
-            ? 0 : fail("macOS refused \(refused.map(\.keys).joined(separator: ", ")); choose other keys.")
+        if !refused.isEmpty {
+            return fail("macOS refused \(refused.map(\.keys).joined(separator: ", ")); choose other keys.")
+        }
+        return clashing.isEmpty
+            ? 0
+            : fail(
+                "macOS uses \(clashing.map(\.keys).joined(separator: ", ")) for shortcuts of its own, so they may "
+                    + "not work. \(systemShortcutAdvice)")
     }
+
+    private static let systemShortcutAdvice =
+        "Choose other keys, or switch that one off in System Settings › Keyboard › Keyboard Shortcuts."
 
     // MARK: Status, key watch and doctor
 
@@ -138,7 +162,8 @@ enum CLI {
         guard AppInfo.otherInstance != nil, let before = client.requestStatus() else { return fail(notRunning) }
         guard before.keyTapActive else {
             return fail(
-                "Watching keys needs Accessibility access; choose \"Enable Keyboard Volume Keys…\" in the menu.")
+                "Watching keys needs the keyboard's keys turned on; choose \"Turn On Keyboard Volume Keys…\" in the "
+                    + "menu.")
         }
         client.watchKeys(seconds: seconds)
         print("Press the keys you want to identify. Watching for \(seconds) seconds; ordinary typing is not recorded.")
@@ -182,7 +207,7 @@ enum CLI {
             print("App: not running")
         } else if let status = client.requestStatus() {
             print("App: running\n" + describe(status).split(separator: "\n").map { "  \($0)" }.joined(separator: "\n"))
-            healthy = healthy && status.shortcuts.allSatisfy(\.registered)
+            healthy = healthy && status.shortcuts.allSatisfy { $0.registered && !$0.usedByMacOS }
             if keyTest { healthy = self.keyTest(status) && healthy }
         } else {
             print("App: running, but it did not answer")
@@ -257,8 +282,8 @@ enum CLI {
             lines.append("Keyboard volume keys: OFF, access is granted but the key tap could not start")
         } else {
             lines.append(
-                "Keyboard volume keys: OFF, waiting for Accessibility access "
-                    + "(choose \"Enable Keyboard Volume Keys…\" in the menu)"
+                "Keyboard volume keys: OFF, not yet allowed under \(AccessibilityAccess.listName) "
+                    + "(choose \"Turn On Keyboard Volume Keys…\" in the menu)"
                     + (status.askingIsDisabled ? "; asking is switched off" : ""))
         }
 
@@ -278,6 +303,7 @@ enum CLI {
 
     private static func describe(_ shortcut: AppStatus.ShortcutStatus) -> String {
         "\(shortcut.action): \(shortcut.keys)\(shortcut.registered ? "" : "  REFUSED by macOS")"
+            + (shortcut.usedByMacOS ? "  USED by macOS itself" : "")
     }
 
     private static func describe(_ level: AppStatus.Level?) -> String {

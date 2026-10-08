@@ -18,6 +18,12 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp .build/release/DisplayKeys "$app/Contents/MacOS/DisplayKeys"
 strip -x "$app/Contents/MacOS/DisplayKeys"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+
+# The layered icon, which macOS 26 and later render with Liquid Glass, is compiled into an
+# asset catalog. The flat icon is copied afterwards and serves earlier versions of macOS.
+xcrun actool Resources/AppIcon.icon --compile "$app/Contents/Resources" --app-icon AppIcon \
+    --platform macosx --minimum-deployment-target 14.0 \
+    --output-partial-info-plist build/icon-info.plist --errors --warnings >/dev/null
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 identity="${CODESIGN_IDENTITY:-}"

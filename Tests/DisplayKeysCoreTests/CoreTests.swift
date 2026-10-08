@@ -87,6 +87,35 @@ import Testing
         }
     }
 
+    @Test func everyStepFillsAWholeNumberOfSegments() {
+        var value = DDC.Value(current: 0, maximum: 100)
+        for step in 0...Level.coarseSteps {
+            #expect(Level.barPosition(value) == Double(step) / Double(Level.coarseSteps))
+            value.current = Level.stepped(value, up: true, fine: false)
+        }
+    }
+
+    @Test func quarterStepsFillQuarterSegments() {
+        var value = DDC.Value(current: 50, maximum: 100)
+        for quarter in 0...4 {
+            #expect(Level.barPosition(value) == (32.0 + Double(quarter)) / 64)
+            value.current = Level.stepped(value, up: true, fine: true)
+        }
+    }
+
+    @Test func aValueBetweenStepsKeepsItsTruePosition() {
+        #expect(Level.barPosition(DDC.Value(current: 57, maximum: 100)) == 0.57)
+        #expect(Level.barPosition(DDC.Value(current: 7, maximum: 0)) == 0)
+    }
+
+    @Test func worksOnRangesOtherThanAHundred() {
+        var value = DDC.Value(current: 0, maximum: 255)
+        for step in 0...Level.coarseSteps {
+            #expect(Level.barPosition(value) == Double(step) / Double(Level.coarseSteps))
+            value.current = Level.stepped(value, up: true, fine: false)
+        }
+    }
+
     @Test func convertsPercentages() {
         #expect(Level.value(percent: 50, maximum: 255) == 128)
         #expect(Level.value(percent: 140, maximum: 100) == 100)
@@ -155,7 +184,7 @@ import Testing
         var state = state()
         let outcome = state.apply(.step(.brightness, up: true, fine: false))
         #expect(outcome?.writes == [.init(.brightness, 56)])
-        #expect(outcome?.feedback == Feedback(kind: .brightness, fraction: 0.56))
+        #expect(outcome?.feedback == Feedback(kind: .brightness, value: DDC.Value(current: 56, maximum: 100)))
         #expect(state.brightness?.current == 56)
     }
 
@@ -180,7 +209,7 @@ import Testing
         var state = state(mute: nil)
         let muted = state.apply(.mute(.toggle))
         #expect(muted?.writes == [.init(.volume, 0)])
-        #expect(muted?.feedback == Feedback(kind: .muted, fraction: 0.13))
+        #expect(muted?.feedback == Feedback(kind: .muted, value: DDC.Value(current: 13, maximum: 100)))
         #expect(state.apply(.mute(.toggle))?.writes == [.init(.volume, 13)])
     }
 
@@ -414,5 +443,75 @@ import Testing
         #expect(state.value(of: .brightness) == 50)
         #expect(state.value(of: .volume) == nil)
         #expect(state.value(of: .mute) == DDC.Mute.on)
+    }
+}
+
+@Suite struct ShortcutCheckTests {
+    private let others: [Shortcut.Action: Shortcut] = [
+        .brightnessUp: Shortcut("ctrl+alt+up")!, .volumeUp: Shortcut("ctrl+alt+right")!,
+        .mute: Shortcut("ctrl+alt+end")!,
+    ]
+
+    private func check(_ text: String?, for action: Shortcut.Action, quarterSteps: Bool = false) -> Shortcut.Rejection?
+    {
+        Shortcut.check(text.flatMap(Shortcut.init), for: action, others: others, quarterSteps: quarterSteps)
+    }
+
+    @Test func acceptsAFreeShortcut() {
+        #expect(check("ctrl+alt+down", for: .brightnessDown) == nil)
+        #expect(check("f15", for: .brightnessDown) == nil)
+    }
+
+    @Test func anActionMayKeepItsOwnShortcut() {
+        #expect(check("ctrl+alt+up", for: .brightnessUp) == nil)
+    }
+
+    @Test func rejectsKeysThatCannotBeShortcuts() {
+        #expect(check(nil, for: .mute) == .unsupportedKey)
+        #expect(check("up", for: .mute) == .needsModifier)
+    }
+
+    @Test func rejectsAShortcutAnotherActionUses() {
+        #expect(check("ctrl+alt+up", for: .volumeDown) == .usedBy(.brightnessUp))
+    }
+
+    @Test func quarterStepsAlsoClaimTheShiftVariant() {
+        #expect(check("ctrl+alt+shift+up", for: .volumeDown) == nil)
+        #expect(check("ctrl+alt+shift+up", for: .volumeDown, quarterSteps: true) == .usedBy(.brightnessUp))
+        // Mute does not step, so it has no Shift variant.
+        #expect(check("ctrl+alt+shift+end", for: .volumeDown, quarterSteps: true) == nil)
+    }
+
+    @Test func rejectsAShortcutMacOSUsesItself() {
+        let system = [Shortcut("ctrl+up")!]
+        func check(_ text: String) -> Shortcut.Rejection? {
+            Shortcut.check(
+                Shortcut(text), for: .volumeDown, others: others, quarterSteps: false,
+                isUsedBySystem: system.contains)
+        }
+        #expect(check("ctrl+up") == .usedBySystem)
+        #expect(check("ctrl+down") == nil)
+        // A clash with another action is the more useful thing to say.
+        #expect(
+            Shortcut.check(
+                Shortcut("ctrl+alt+up"), for: .volumeDown, others: others, quarterSteps: false,
+                isUsedBySystem: { _ in true }) == .usedBy(.brightnessUp))
+    }
+
+    @Test func theQuarterStepVariantAddsShift() {
+        #expect(Shortcut("ctrl+alt+up")?.quarterStepVariant == Shortcut("ctrl+alt+shift+up"))
+        #expect(Shortcut("shift+f15")?.quarterStepVariant == nil)
+    }
+}
+
+@Suite struct FeedbackTests {
+    @Test func reportsAWholePercentage() {
+        #expect(Feedback(kind: .brightness, fraction: 0.5625).percent == 56)
+        // The bar snaps to the step; the percentage stays the display's own number.
+        let stepped = Feedback(kind: .brightness, value: DDC.Value(current: 56, maximum: 100))
+        #expect(stepped.percent == 56)
+        #expect(stepped.barPosition == 9.0 / 16)
+        #expect(Feedback(kind: .volume, fraction: 1.4).percent == 100)
+        #expect(Feedback(kind: .volume, fraction: -1).percent == 0)
     }
 }

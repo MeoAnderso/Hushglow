@@ -17,11 +17,26 @@ public struct Feedback: Equatable, Sendable {
     }
 
     public var kind: Kind
+    /// The level as a share of the display's range.
     public var fraction: Double
+    /// Where the level bar should be filled to; see `Level.barPosition`.
+    public var barPosition: Double
 
     public init(kind: Kind, fraction: Double) {
         self.kind = kind
         self.fraction = fraction
+        barPosition = fraction
+    }
+
+    public init(kind: Kind, value: DDC.Value) {
+        self.kind = kind
+        fraction = value.fraction
+        barPosition = Level.barPosition(value)
+    }
+
+    /// The level as a whole percentage.
+    public var percent: Int {
+        Int((min(max(fraction, 0), 1) * 100).rounded())
     }
 }
 
@@ -124,7 +139,7 @@ public struct DisplayState: Equatable, Sendable {
         brightness?.current = current
         return Outcome(
             writes: changed ? [Write(.brightness, current)] : [],
-            feedback: Feedback(kind: .brightness, fraction: brightness?.fraction ?? 0)
+            feedback: Feedback(kind: .brightness, value: brightness ?? DDC.Value(current: 0, maximum: 0))
         )
     }
 
@@ -136,12 +151,13 @@ public struct DisplayState: Equatable, Sendable {
         if volume?.current != current || (isMuted && !hasHardwareMute) { writes.append(Write(.volume, current)) }
         isMuted = false
         volume?.current = current
-        return Outcome(writes: writes, feedback: Feedback(kind: .volume, fraction: volume?.fraction ?? 0))
+        return Outcome(
+            writes: writes, feedback: Feedback(kind: .volume, value: volume ?? DDC.Value(current: 0, maximum: 0)))
     }
 
     private mutating func setMuted(_ muted: Bool) -> Outcome? {
         guard let volume else { return nil }
-        let feedback = Feedback(kind: muted ? .muted : .volume, fraction: volume.fraction)
+        let feedback = Feedback(kind: muted ? .muted : .volume, value: volume)
         guard muted != isMuted else { return Outcome(writes: [], feedback: feedback) }
         isMuted = muted
         let write =

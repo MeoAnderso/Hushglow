@@ -48,7 +48,10 @@ struct IOAV: DisplayTransport {
     static let shared = IOAV()
 
     /// Displays answer with a null message unless a request is written twice.
-    private static let writeCycles = 2
+    private static let requestCycles = 2
+    /// A value is written three times: this display drops about one write in a hundred when it
+    /// is sent twice, and none in the samples taken when it is sent three times.
+    private static let setCycles = 3
     private static let retryWait: useconds_t = 20_000
     private static let readAttempts = 5
 
@@ -91,7 +94,7 @@ struct IOAV: DisplayTransport {
         for attempt in 0..<Self.readAttempts {
             if attempt > 0 { usleep(Self.retryWait) }
             let waits = waits(for: service)
-            guard send(service, DDC.getRequest(feature), waits) else { continue }
+            guard send(service, DDC.getRequest(feature), waits, cycles: Self.requestCycles) else { continue }
             usleep(waits.beforeRead)
             var reply = [UInt8](repeating: 0, count: DDC.getReplyLength)
             let status = reply.withUnsafeMutableBytes { buffer in
@@ -113,15 +116,15 @@ struct IOAV: DisplayTransport {
 
     @discardableResult
     func set(_ service: AVService, _ feature: DDC.Feature, value: Int) -> Bool {
-        send(service, DDC.setRequest(feature, value: value), waits(for: service))
+        send(service, DDC.setRequest(feature, value: value), waits(for: service), cycles: Self.setCycles)
     }
 
     private func waits(for service: AVService) -> Waits {
         service.needsLongWaits ? .long : .short
     }
 
-    private func send(_ service: AVService, _ packet: [UInt8], _ waits: Waits) -> Bool {
-        for _ in 0..<Self.writeCycles {
+    private func send(_ service: AVService, _ packet: [UInt8], _ waits: Waits, cycles: Int) -> Bool {
+        for _ in 0..<cycles {
             if waits.beforeWrite > 0 { usleep(waits.beforeWrite) }
             let status = packet.withUnsafeBytes { buffer in
                 writeI2C(service.reference, DDC.chipAddress, DDC.hostAddress, buffer.baseAddress!, UInt32(buffer.count))

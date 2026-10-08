@@ -96,6 +96,8 @@ public final class Displays<Transport: DisplayTransport> {
     private var preview: [DisplayState]?
     /// Controls written since they were last read back.
     private var unverified: Set<Command.Control> = []
+    /// Controls whose last write was sent a second time after a read-back disagreed.
+    private var retried: Set<Command.Control> = []
     /// Per display, the value each feature had before the current burst of writes began.
     private var burstOrigin: [Int: [DDC.Feature: Int]] = [:]
     private var verifyDeadline = DispatchTime.now()
@@ -141,6 +143,7 @@ public final class Displays<Transport: DisplayTransport> {
         waiting.removeAll()
         preview = nil
         unverified.removeAll()
+        retried.removeAll()
         burstOrigin.removeAll()
         syncedAt.removeAll()
     }
@@ -172,6 +175,7 @@ public final class Displays<Transport: DisplayTransport> {
         guard feedback != nil else { return nil }
         epochs[command.control, default: 0] += 1
         syncedAt[command.featureToRead] = time
+        retried.remove(command.control)
         if wrote {
             unverified.insert(command.control)
             scheduleVerify()
@@ -238,6 +242,7 @@ public final class Displays<Transport: DisplayTransport> {
         entries = found.filter(\.state.isControllable)
         topology += 1
         burstOrigin.removeAll()
+        retried.removeAll()
         let time = now()
         for control in Command.Control.allCases {
             for feature in control.features { syncedAt[feature] = time }
@@ -296,6 +301,7 @@ public final class Displays<Transport: DisplayTransport> {
             // Drop a reading that a newer command or a rediscovery has already overtaken.
             guard topology == self.topology, epochs[control] == startEpochs[control] else { continue }
             let afterWrite = isVerify && unverified.remove(control) != nil
+            if afterWrite, resendIfNotTaken(control, features: features, readings: readings) { continue }
             for (index, values) in readings.enumerated() {
                 for (feature, value) in zip(features, values) where control.features.contains(feature) {
                     let origin = burstOrigin[index]?[feature]
@@ -315,6 +321,30 @@ public final class Displays<Transport: DisplayTransport> {
     }
 
     // MARK: Reading back after writes
+
+    /// Displays drop a write now and then (about one in a hundred on the display it was tuned on). When a
+    /// read-back disagrees with what was written, the values are sent once more and read back
+    /// again before the disagreement is believed. Returns true when it sent them again.
+    private func resendIfNotTaken(_ control: Command.Control, features: [DDC.Feature], readings: [[DDC.Value?]]) -> Bool
+    {
+        guard !retried.contains(control) else {
+            retried.remove(control)
+            return false
+        }
+        var resent = false
+        for (index, values) in readings.enumerated() {
+            for (feature, value) in zip(features, values) where control.features.contains(feature) {
+                var trial = entries[index].state
+                guard let value, let cached = trial.reconcile(feature, with: value) else { continue }
+                writer.submit(entries[index].display, feature, cached)
+                resent = true
+            }
+        }
+        guard resent else { return false }
+        retried.insert(control)
+        unverified.insert(control)
+        return true
+    }
 
     /// Schedules one read-back after the writes stop; further writes only push the deadline out.
     private func scheduleVerify() {

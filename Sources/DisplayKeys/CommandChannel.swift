@@ -13,6 +13,8 @@ struct AppStatus: Codable {
         var keys: String
         /// False when macOS refused the shortcut.
         var registered: Bool
+        /// True when macOS has a shortcut of its own on the same keys.
+        var usedByMacOS: Bool
     }
 
     /// Counts of the input the app has received since it started.

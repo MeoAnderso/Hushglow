@@ -62,3 +62,50 @@ enum ShortcutSettings {
         AppInfo.defaults.synchronize()
     }
 }
+
+/// How the on-screen indicator looks and where it appears.
+enum IndicatorSettings {
+    enum Style: String, CaseIterable {
+        /// The system's glass, which follows the Liquid Glass setting in System Settings.
+        case glass
+        /// The same glass at reduced strength, so what is behind it shows through.
+        case seeThrough
+        /// A plain dark tint with no blur: the most transparent, and the lightest to draw.
+        case plain
+
+        var title: String {
+            switch self {
+            case .glass: "Glass"
+            case .seeThrough: "See-through glass"
+            case .plain: "Plain tint"
+            }
+        }
+    }
+
+    enum Position: String, CaseIterable {
+        case underMenuBarIcon
+        case corner
+
+        var title: String {
+            switch self {
+            case .underMenuBarIcon: "Under the menu bar icon"
+            case .corner: "Top-right corner"
+            }
+        }
+    }
+
+    static var style: Style {
+        get { AppInfo.defaults.string(forKey: "indicator.style").flatMap(Style.init) ?? .glass }
+        set { AppInfo.defaults.set(newValue.rawValue, forKey: "indicator.style") }
+    }
+
+    static var position: Position {
+        get { AppInfo.defaults.string(forKey: "indicator.position").flatMap(Position.init) ?? .underMenuBarIcon }
+        set { AppInfo.defaults.set(newValue.rawValue, forKey: "indicator.position") }
+    }
+
+    static var showsPercentage: Bool {
+        get { AppInfo.defaults.bool(forKey: "indicator.showsPercentage") }
+        set { AppInfo.defaults.set(newValue, forKey: "indicator.showsPercentage") }
+    }
+}

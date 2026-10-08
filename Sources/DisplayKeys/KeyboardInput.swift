@@ -27,11 +27,14 @@ final class KeyboardInput {
         set { access.askingIsDisabled = newValue }
     }
 
-    func start() {
+    /// Starts listening. Returns whether this launch should ask the user about access for the
+    /// keyboard's own keys.
+    func start() -> Bool {
         reloadShortcuts()
         access.onChange = { [unowned self] in updateKeyTap() }
-        access.start()
+        let shouldAsk = access.start()
         updateKeyTap()
+        return shouldAsk
     }
 
     func stop() {
@@ -49,12 +52,24 @@ final class KeyboardInput {
         if !refused.isEmpty {
             log.error("macOS refused these shortcuts: \(refused.joined(separator: ", "), privacy: .public)")
         }
+        let clashing = hotkeys.statuses.filter(\.usedByMacOS).map(\.keys)
+        if !clashing.isEmpty {
+            log.error("macOS uses these shortcuts itself: \(clashing.joined(separator: ", "), privacy: .public)")
+        }
     }
 
     /// Releases the shortcuts, so that pressing one can be recorded instead of acted on.
     func pauseShortcuts() {
         hotkeys.unregisterAll()
     }
+
+    /// Whether macOS accepts the shortcut. Meant for when the app's own shortcuts are paused.
+    func canRegister(_ shortcut: Shortcut) -> Bool {
+        Hotkeys.canRegister(shortcut)
+    }
+
+    /// The shortcuts macOS has switched on for itself.
+    var shortcutsUsedByMacOS: [Shortcut] { Hotkeys.usedByMacOS() }
 
     func stopRepeating() {
         hotkeys.stopRepeating()
@@ -72,18 +87,13 @@ final class KeyboardInput {
     /// Asks for Accessibility access; an explicit request also turns asking back on.
     func requestAccess() {
         askingIsDisabled = false
-        access.request(openSettings: true)
+        access.request()
     }
 
     /// Starts the key tap when Accessibility access is there and removes it when it is not.
     func updateKeyTap() {
         let wasRunning = keyTap.isRunning
-        if access.isGranted, keyTap.start() {
-            access.stopWaiting()
-        } else {
-            keyTap.stop()
-            access.startWaiting()
-        }
+        if !(access.isGranted && keyTap.start()) { keyTap.stop() }
         if keyTap.isRunning != wasRunning {
             log.notice("Keyboard key tap \(self.keyTap.isRunning ? "started" : "stopped", privacy: .public)")
         }

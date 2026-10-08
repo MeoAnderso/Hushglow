@@ -8,6 +8,8 @@
     <string>DisplayKeys</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>local.DisplayKeys</string>
     <key>CFBundleInfoDictionaryVersion</key>

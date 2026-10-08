@@ -9,24 +9,31 @@ let log = Logger(subsystem: AppInfo.bundleID, category: "app")
 /// Wires the pieces together. Everything is event-driven: in the steady state there are no
 /// timers and no polling.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost {
+final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, SettingsHost {
     private static let wakeSettleDelay: TimeInterval = 3
     private static let reconfigurationSettleDelay: TimeInterval = 2
+    private static let welcomeShownKey = "welcomeShown"
 
     private var displays: Displays<IOAV>?
     private let audio = AudioRoute()
     private let osd = OSD()
+    private let announcer = Announcer()
     private let keyboard = KeyboardInput()
     private let systemEvents = SystemEvents()
     private var statusMenu: StatusMenu?
     private var channel: CommandChannel?
-    private var shortcutsWindow: ShortcutsWindow?
+    private var settingsWindow: SettingsWindow?
+    private var welcomeWindow: WelcomeWindow?
     private var lastReadMilliseconds: Int?
 
     var displayState: DisplayState? { displays?.primary }
     var displayControlIsAvailable: Bool { displays != nil }
     var keyboardKeysAreActive: Bool { keyboard.keysAreActive }
-    var keyboardAskingIsDisabled: Bool { keyboard.askingIsDisabled }
+
+    var keyboardAskingIsDisabled: Bool {
+        get { keyboard.askingIsDisabled }
+        set { keyboard.askingIsDisabled = newValue }
+    }
 
     // MARK: Launch and termination
 
@@ -35,9 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost {
 
         keyboard.onCommand = { [unowned self] in run($0, showOSD: true) }
         keyboard.routingContext = { [unowned self] in routingContext }
-        keyboard.start()
+        let shouldAskAboutKeys = keyboard.start()
 
-        statusMenu = StatusMenu(host: self)
+        let statusMenu = StatusMenu(host: self)
+        self.statusMenu = statusMenu
+        osd.anchor = { [unowned statusMenu] in statusMenu.itemFrame }
         channel = CommandChannel(
             handlers: .init(
                 onCommand: { [unowned self] in run($0, showOSD: true) },
@@ -61,12 +70,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost {
             scheduleRefresh(after: Self.reconfigurationSettleDelay)
         }
         systemEvents.start()
+
         let build = CodeIdentity.short ?? "unknown"
         log.notice("Launched, version \(AppInfo.version, privacy: .public), build \(build, privacy: .public)")
+        greet(shouldAskAboutKeys: shouldAskAboutKeys)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         keyboard.stop()
+    }
+
+    /// Explains the app on its first launch, and the lost permission after an update, before
+    /// macOS shows a prompt of its own.
+    private func greet(shouldAskAboutKeys: Bool) {
+        let isFirstLaunch = !AppInfo.defaults.bool(forKey: Self.welcomeShownKey)
+        guard isFirstLaunch || shouldAskAboutKeys else { return }
+        AppInfo.defaults.set(true, forKey: Self.welcomeShownKey)
+        let welcome = WelcomeWindow(
+            onTurnOn: { [unowned self] in keyboard.requestAccess() },
+            onDontAsk: { [unowned self] in keyboard.askingIsDisabled = true })
+        welcomeWindow = welcome
+        welcome.show(isFirstLaunch ? .firstLaunch : .update, keysAreActive: keyboard.keysAreActive)
     }
 
     // MARK: Commands
@@ -74,17 +98,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost {
     /// Applies a command to the displays and optionally shows the result on screen.
     func run(_ command: Command, showOSD: Bool) {
         guard let displays else {
-            if showOSD { osd.show(.noDisplay) }
+            if showOSD { indicate(.noDisplay) }
             return
         }
-        displays.apply(command) { [osd] feedback, isFinal in
+        displays.apply(command) { [unowned self] feedback, isFinal in
             guard showOSD else { return }
             if let feedback {
-                osd.show(.level(feedback))
+                indicate(.level(feedback))
             } else if isFinal {
-                osd.show(displays.primary == nil ? .noDisplay : .unsupported(command.control))
+                indicate(displays.primary == nil ? .noDisplay : .unsupported(command.control))
             }
         }
+    }
+
+    private func indicate(_ indication: Indication) {
+        osd.show(indication)
+        announcer.announce(indication)
     }
 
     private var routingContext: KeyRouting.Context? {
@@ -96,23 +125,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost {
             mainDisplayIsBuiltIn: CGDisplayIsBuiltin(CGMainDisplayID()) != 0)
     }
 
-    // MARK: Menu
+    // MARK: Menu and Settings
 
     func enableKeyboardKeys() {
         keyboard.requestAccess()
     }
 
-    func disableKeyboardAsking() {
-        keyboard.askingIsDisabled = true
+    func refreshKeyboardAccess() {
+        keyboard.updateKeyTap()
     }
 
-    func showShortcuts() {
-        if shortcutsWindow == nil {
-            shortcutsWindow = ShortcutsWindow(
-                onOpen: { [unowned self] in keyboard.pauseShortcuts() },
-                onClose: { [unowned self] in keyboard.reloadShortcuts() })
-        }
-        shortcutsWindow?.show()
+    func showSettings() {
+        if settingsWindow == nil { settingsWindow = SettingsWindow(host: self) }
+        settingsWindow?.show()
+    }
+
+    func pauseShortcuts() {
+        keyboard.pauseShortcuts()
+    }
+
+    func resumeShortcuts() {
+        keyboard.reloadShortcuts()
+    }
+
+    func canRegister(_ shortcut: Shortcut) -> Bool {
+        keyboard.canRegister(shortcut)
+    }
+
+    var shortcutsUsedByMacOS: [Shortcut] { keyboard.shortcutsUsedByMacOS }
+
+    func previewIndicator() {
+        let brightness = displays?.primary?.brightness ?? DDC.Value(current: 50, maximum: 100)
+        osd.show(.level(Feedback(kind: .brightness, value: brightness)))
     }
 
     // MARK: Displays
@@ -150,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost {
         case .writeRefused:
             log.notice(
                 "The display kept \(name, privacy: .public) at \(mismatch.actual) and did not take \(mismatch.cached)")
-            osd.show(.refused(mismatch.feature == .brightness ? .brightness : .volume))
+            indicate(.refused(mismatch.feature == .brightness ? .brightness : .volume))
         }
     }
 

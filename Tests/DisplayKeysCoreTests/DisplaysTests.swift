@@ -13,6 +13,7 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     private var events: [String] = []
     /// What the display does with a written value; nil means it ignores writes.
     private var onWrite: ((Int) -> Int)? = { $0 }
+    private var dropsRemaining = 0
 
     func displays() -> [Handle] { [handle] }
 
@@ -26,7 +27,11 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     func set(_ display: Handle, _ feature: DDC.Feature, value: Int) -> Bool {
         lock.withLock {
             events.append("set \(feature)=\(value)")
-            if let onWrite { values[feature] = onWrite(value) }
+            if dropsRemaining > 0 {
+                dropsRemaining -= 1
+            } else if let onWrite {
+                values[feature] = onWrite(value)
+            }
             return true
         }
     }
@@ -37,6 +42,11 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
 
     func ignoreWrites() {
         lock.withLock { onWrite = nil }
+    }
+
+    /// Makes the display lose the next write and take the ones after it.
+    func dropNextWrite() {
+        lock.withLock { dropsRemaining = 1 }
     }
 
     /// Makes the display settle one unit below whatever is written.
@@ -167,11 +177,26 @@ private final class Recorder {
         #expect(displays.primary?.isMuted == false)
     }
 
-    @Test func aWriteTheDisplayRefusedIsReported() async {
+    @Test func aDroppedWriteIsSentAgain() async {
+        transport.dropNextWrite()
+        press(brightnessUp)
+        await settle()
+        #expect(
+            transport.takeEvents() == ["set brightness=56", "get brightness", "set brightness=56", "get brightness"])
+        #expect(transport.value(.brightness) == 56)
+        #expect(displays.primary?.brightness?.current == 56)
+        #expect(recorder.mismatches.isEmpty)
+    }
+
+    @Test func aWriteTheDisplayRefusedIsReportedAfterOneRetry() async {
         transport.ignoreWrites()
         press(brightnessUp)
         press(brightnessUp)
         await settle()
+        #expect(
+            transport.takeEvents().filter { $0.hasPrefix("set") }.suffix(2) == [
+                "set brightness=63", "set brightness=63",
+            ])
         #expect(displays.primary?.brightness?.current == 50)
         #expect(recorder.mismatches == [.init(feature: .brightness, cached: 63, actual: 50, kind: .writeRefused)])
     }

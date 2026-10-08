@@ -25,6 +25,21 @@ public enum Level {
         return min(max(result, 0), maximum)
     }
 
+    /// Where a value sits on the level bar, from 0 to 1.
+    ///
+    /// Displays take whole numbers, so the value stored for a step is rounded: on a 0 to 100
+    /// range the steps of 6.25 are held as 6, 13, 19 and so on. Drawn as they are, those would
+    /// stop just short of a segment's edge or run just past it. A value that is the rounded
+    /// form of a step is therefore placed exactly on that step; any other value keeps its
+    /// true position.
+    public static func barPosition(_ value: DDC.Value) -> Double {
+        guard value.maximum > 0 else { return 0 }
+        let steps = Double(fineSteps)
+        let nearest = (Double(value.current) * steps / Double(value.maximum)).rounded()
+        let isStep = Int((nearest * Double(value.maximum) / steps).rounded()) == value.current
+        return isStep ? nearest / steps : value.fraction
+    }
+
     public static func value(percent: Int, maximum: Int) -> Int {
         Int((Double(min(max(percent, 0), 100)) * Double(maximum) / 100).rounded())
     }

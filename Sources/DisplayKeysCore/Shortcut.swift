@@ -87,6 +87,47 @@ public struct Shortcut: Equatable, Sendable {
         self.modifiers = modifiers
     }
 
+    /// Why a newly chosen shortcut cannot be used.
+    public enum Rejection: Equatable, Sendable {
+        /// The key is not one a shortcut can use, such as a letter.
+        case unsupportedKey
+        /// A bare arrow or page key would be taken away from every app.
+        case needsModifier
+        /// Another action already uses these keys.
+        case usedBy(Action)
+        /// macOS has a shortcut of its own on these keys, such as Mission Control on Ctrl-Up.
+        case usedBySystem
+    }
+
+    /// Checks a shortcut chosen for an action against the shortcuts of the other actions and
+    /// those of macOS. `shortcut` is nil when the pressed key is not one a shortcut can use.
+    /// With quarter steps on, each stepping shortcut also claims its Shift variant.
+    public static func check(
+        _ shortcut: Shortcut?, for action: Action, others: [Action: Shortcut], quarterSteps: Bool,
+        isUsedBySystem: (Shortcut) -> Bool = { _ in false }
+    ) -> Rejection? {
+        guard let shortcut else { return .unsupportedKey }
+        guard shortcut.isUsable else { return .needsModifier }
+        func claims(_ shortcut: Shortcut, _ action: Action) -> [Shortcut] {
+            guard quarterSteps, action.repeatsWhileHeld, let quarter = shortcut.quarterStepVariant else {
+                return [shortcut]
+            }
+            return [shortcut, quarter]
+        }
+        let wanted = claims(shortcut, action)
+        for other in Action.allCases where other != action {
+            guard let taken = others[other] else { continue }
+            if claims(taken, other).contains(where: wanted.contains) { return .usedBy(other) }
+        }
+        return isUsedBySystem(shortcut) ? .usedBySystem : nil
+    }
+
+    /// The same keys with Shift added, which is what a quarter step is registered on; nil when
+    /// Shift is already part of the shortcut.
+    public var quarterStepVariant: Shortcut? {
+        modifiers.contains(.shift) ? nil : Shortcut(keyCode: keyCode, modifiers: modifiers.union(.shift))
+    }
+
     /// Whether the shortcut is safe to claim system-wide. A bare arrow or page key would take
     /// that key away from every app, so those need a modifier; a function key may stand alone.
     public var isUsable: Bool {
@@ -112,8 +153,22 @@ public struct Shortcut: Equatable, Sendable {
         return Self.modifierOrder.filter { modifiers.contains($0.modifier) }.map(\.symbol).joined() + keySymbol
     }
 
-    private static let modifierOrder: [(modifier: Modifiers, name: String, symbol: String)] = [
-        (.control, "ctrl", "⌃"), (.option, "alt", "⌥"), (.shift, "shift", "⇧"), (.command, "cmd", "⌘"),
+    /// The form read aloud by VoiceOver, for example `Control Option Up Arrow`.
+    public var spoken: String {
+        let key = Self.keyName(for: keyCode) ?? ""
+        let keyWords = Self.keyWords[key] ?? key.uppercased()
+        return (Self.modifierOrder.filter { modifiers.contains($0.modifier) }.map(\.word) + [keyWords]).joined(
+            separator: " ")
+    }
+
+    private static let modifierOrder: [(modifier: Modifiers, name: String, symbol: String, word: String)] = [
+        (.control, "ctrl", "⌃", "Control"), (.option, "alt", "⌥", "Option"), (.shift, "shift", "⇧", "Shift"),
+        (.command, "cmd", "⌘", "Command"),
+    ]
+
+    private static let keyWords: [String: String] = [
+        "up": "Up Arrow", "down": "Down Arrow", "left": "Left Arrow", "right": "Right Arrow",
+        "pageup": "Page Up", "pagedown": "Page Down", "home": "Home", "end": "End",
     ]
 
     private static let keySymbols: [String: String] = [
