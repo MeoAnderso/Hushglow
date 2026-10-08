@@ -454,8 +454,12 @@ private final class MenuSession: NSObject {
                 for appearance in [NSAppearance.Name.darkAqua, .aqua] {
                     let session = MenuSession(appearance: appearance, events: 4000)
                     session.run()
-                    let name = "menu-\(appearance == .aqua ? "light" : "dark")"
-                    try writePreview(try #require(session.picture), named: name)
+                    // A real click anywhere closes the menu, as it would for anyone.
+                    guard let picture = session.picture else {
+                        Issue.record("The menu was closed before it had opened; a click elsewhere does that.")
+                        return
+                    }
+                    try writePreview(picture, named: "menu-\(appearance == .aqua ? "light" : "dark")")
 
                     // The rows are as wide as the menu, which the line of shortcuts can make
                     // wider than they ask for.
