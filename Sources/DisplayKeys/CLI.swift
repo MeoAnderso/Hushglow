@@ -258,7 +258,7 @@ enum CLI {
 
     // MARK: Descriptions
 
-    private static func describe(_ status: AppStatus) -> String {
+    static func describe(_ status: AppStatus) -> String {
         var lines = ["\(AppInfo.name) \(status.version)" + (status.build.map { ", build \($0)" } ?? "")]
         if !status.displayControlAvailable {
             lines.append("Display: control is unavailable on this macOS")
@@ -271,6 +271,9 @@ enum CLI {
         }
         if let milliseconds = status.lastReadMilliseconds {
             lines.append("Last read of the display: \(milliseconds) ms")
+        }
+        if let bytes = status.memoryFootprint {
+            lines.append("Memory: \(String(format: "%.1f", Double(bytes) / 1_048_576)) MB")
         }
 
         if status.keyTapActive {

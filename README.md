@@ -80,8 +80,9 @@ DisplayKeys get brightness
 ### When something does not respond
 
 - `DisplayKeys status` shows what the running app sees: its version and build, the display's
-  values, whether the keyboard's own keys are active, which shortcuts are registered, and
-  how many key presses it has received and what the last one was.
+  values, how much memory the app uses, whether the keyboard's own keys are active, which
+  shortcuts are registered, and how many key presses it has received and what the last one
+  was.
 - `DisplayKeys watch-keys` shows, for ten seconds, which special keys reach the app. Use it
   to find out what a keyboard's volume keys actually send. Ordinary typing is not recorded.
 - `DisplayKeys doctor` checks the connection to the display. `--write-test` also changes

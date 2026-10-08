@@ -448,7 +448,7 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
             askingIsDisabled: false, keyTapActive: true, soundGoesToDisplay: true, quarterSteps: false,
             shortcuts: [.init(action: "mute", keys: "ctrl+alt+end", registered: false, usedByMacOS: true)],
             input: .init(),
-            lastReadMilliseconds: 31, isWatchingKeys: false, watchedKeys: ["key f11"])
+            lastReadMilliseconds: 31, memoryFootprint: 24_536_000, isWatchingKeys: false, watchedKeys: ["key f11"])
     }
 
     @Test func carriesEveryMessageToTheApp() async {
@@ -493,7 +493,18 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         #expect(status.brightness?.current == 61)
         #expect(status.shortcuts.first?.registered == false)
         #expect(status.lastReadMilliseconds == 31)
+        #expect(status.memoryFootprint == 24_536_000)
         #expect(status.watchedKeys == ["key f11"])
+    }
+
+    @Test func theStatusReportsMemory() throws {
+        // The process's own figure is real: a test process is charged far more than a megabyte.
+        #expect(try #require(ProcessMemory.footprint) > 1_048_576)
+        let lines = CLI.describe(makeStatus()).split(separator: "\n")
+        #expect(lines.contains("Memory: 23.4 MB"))
+        var older = makeStatus()
+        older.memoryFootprint = nil
+        #expect(!CLI.describe(older).contains("Memory"))
     }
 
     @Test func waitingForAnAnswerGivesUpWhenThereIsNone() {

@@ -230,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             shortcuts: keyboard.shortcutStatuses,
             input: keyboard.input,
             lastReadMilliseconds: lastReadMilliseconds,
+            memoryFootprint: ProcessMemory.footprint,
             isWatchingKeys: keyboard.watch.isWatching,
             watchedKeys: keyboard.watch.seen)
     }

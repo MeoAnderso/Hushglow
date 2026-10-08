@@ -47,6 +47,8 @@ struct AppStatus: Codable {
     var input: Input
     /// How long the last read of the display took.
     var lastReadMilliseconds: Int?
+    /// The app's memory footprint in bytes. Optional, so that a status from an older build still reads.
+    var memoryFootprint: UInt64?
     var isWatchingKeys: Bool
     /// What the last key watch saw; nil when none has run.
     var watchedKeys: [String]?
