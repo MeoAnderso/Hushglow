@@ -30,6 +30,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private static let margin: CGFloat = 20
     private static let controlLeft: CGFloat = 176
 
+    /// Called once the window has closed. Whoever holds this object can then let it go: the
+    /// window and its controls are not kept for a Settings that may never be opened again.
+    var onClose: (() -> Void)?
+
     private unowned let host: any SettingsHost
     private var window: NSWindow?
     private var fields: [Shortcut.Action: ShortcutField] = [:]
@@ -59,8 +63,17 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    var isOpen: Bool { window != nil }
+
     func windowWillClose(_ notification: Notification) {
         stopRecording()
+        window = nil
+        // Said a moment later, so that this object is not let go from inside the closing.
+        perform(#selector(didClose), with: nil, afterDelay: 0)
+    }
+
+    @objc private func didClose() {
+        if !isOpen { onClose?() }
     }
 
     /// A recording left waiting in a window that is no longer in front would keep the

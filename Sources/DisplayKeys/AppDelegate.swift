@@ -154,7 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     }
 
     func showSettings() {
-        if settingsWindow == nil { settingsWindow = SettingsWindow(host: self) }
+        if settingsWindow == nil {
+            let settings = SettingsWindow(host: self)
+            settings.onClose = { [unowned self] in settingsWindow = nil }
+            settingsWindow = settings
+        }
         settingsWindow?.show()
     }
 
@@ -184,7 +188,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             log.error("The private IOAVService functions are missing; display control is unavailable")
             return
         }
-        let queue = DispatchQueue(label: "\(AppInfo.bundleID).ddc", qos: .userInitiated)
+        // A pool for each piece of work, so nothing it leaves behind outlives it.
+        let queue = DispatchQueue(
+            label: "\(AppInfo.bundleID).ddc", qos: .userInitiated, autoreleaseFrequency: .workItem)
         let displays = Displays(transport: io, queue: queue) {
             // A failed write means the display went away; look again once things settle.
             DispatchQueue.main.async {

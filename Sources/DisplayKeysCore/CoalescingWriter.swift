@@ -51,7 +51,9 @@ public final class CoalescingWriter<Target: AnyObject & Sendable, Key: Hashable 
                 return pending.removeFirst()
             }
             guard let next else { return }
-            send(next.target, next.key, next.value)
+            // One run lasts for as long as values keep arriving, which can be the whole drag
+            // of a slider; what sending a value leaves behind is not kept that long.
+            autoreleasepool { send(next.target, next.key, next.value) }
         }
     }
 }

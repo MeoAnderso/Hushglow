@@ -263,6 +263,22 @@ private func keyPress(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) th
         #expect(host.pauses == 3 && host.resumes == 3)
     }
 
+    /// An open Settings window costs memory that closing alone does not give back, so the app
+    /// lets go of the whole object once it has closed.
+    @Test func tellsItsOwnerWhenItHasClosed() async {
+        let host = StubHost()
+        let settings = SettingsWindow(host: host)
+        var closed = 0
+        settings.onClose = { closed += 1 }
+        let window = settings.makeWindow()
+        #expect(settings.isOpen && closed == 0)
+
+        window.close()
+        #expect(!settings.isOpen)
+        for _ in 0..<50 where closed == 0 { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(closed == 1)
+    }
+
     @Test func restoringTheDefaultsAsksFirst() throws {
         let host = StubHost()
         let settings = SettingsWindow(host: host)

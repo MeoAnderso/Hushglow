@@ -415,6 +415,37 @@ import Testing
         #expect(recorder.sent == ["brightness=1", "brightness=2", "brightness=3"])
     }
 
+    @Test func whatSendingAValueLeavesBehindGoesBeforeTheNext() {
+        final class Leftover: Sendable {}
+        final class Watch: @unchecked Sendable {
+            weak var last: Leftover?
+            var outlived = 0
+        }
+        let watch = Watch()
+        let queue = DispatchQueue(label: "CoalescingWriterTests")
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let writer = CoalescingWriter<Target, String>(queue: queue) { _, _, value in
+            if value == 1 {
+                started.signal()
+                release.wait()
+            }
+            if watch.last != nil { watch.outlived += 1 }
+            let leftover = Leftover()
+            watch.last = leftover
+            _ = Unmanaged.passRetained(leftover).autorelease()
+        }
+        let target = Target()
+
+        writer.submit(target, "first", 1)
+        started.wait()
+        // These wait together and are sent in the one run that the first value began.
+        for key in ["second", "third", "fourth"] { writer.submit(target, key, 2) }
+        release.signal()
+        queue.sync {}
+        #expect(watch.outlived == 0)
+    }
+
     @Test func cancelDropsUnsentValues() {
         let recorder = Recorder()
         let (writer, queue, started, release) = blockedWriter(recorder)
