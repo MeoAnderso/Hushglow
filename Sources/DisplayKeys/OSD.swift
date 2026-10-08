@@ -37,6 +37,28 @@ final class OSD: NSObject {
     private var panel: NSPanel?
     private var indicator: OSDView?
     private var look: IndicatorLook?
+    /// What stays on screen for as long as its cause lasts, whenever nothing newer is shown.
+    private var held: Indication?
+
+    /// What the indicator shows, or showed last.
+    var shown: Indication? { indicator?.indication }
+    var isOnScreen: Bool { panel?.isVisible == true }
+
+    /// Shows an indication and keeps it there until it is released. Anything shown in the
+    /// meantime takes its place for a moment and then gives it back.
+    func hold(_ indication: Indication) {
+        held = indication
+        show(indication)
+    }
+
+    func release(_ indication: Indication) {
+        guard held == indication else { return }
+        held = nil
+        // Something newer keeps the time it has left; what was held goes at once.
+        guard shown == indication else { return }
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(timeIsUp), object: nil)
+        fadeOut()
+    }
 
     func show(_ indication: Indication) {
         let look = IndicatorLook.current
@@ -67,11 +89,16 @@ final class OSD: NSObject {
                 panel.animator().setFrame(frame, display: true)
             }
         }
-        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(fadeOut), object: nil)
-        perform(#selector(fadeOut), with: nil, afterDelay: Self.visibleDuration)
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(timeIsUp), object: nil)
+        if indication != held { perform(#selector(timeIsUp), with: nil, afterDelay: Self.visibleDuration) }
     }
 
-    @objc private func fadeOut() {
+    /// The indication has been on screen long enough.
+    @objc func timeIsUp() {
+        if let held { show(held) } else { fadeOut() }
+    }
+
+    private func fadeOut() {
         guard let panel else { return }
         NSAnimationContext.runAnimationGroup(
             { context in
@@ -304,6 +331,7 @@ final class OSDView: NSView {
         case .refused(let control): drawMessage("\(control.rawValue.capitalized) is locked")
         case .unsupported(let control): drawMessage("No \(control.rawValue) control")
         case .noDisplay: drawMessage("No display to control")
+        case .watchingKeys: drawMessage("Watching special keys")
         }
     }
 
@@ -361,6 +389,7 @@ final class OSDView: NSView {
         switch indication {
         case .refused: return "lock.fill"
         case .noDisplay: return "display.trianglebadge.exclamationmark"
+        case .watchingKeys: return "keyboard"
         case .unsupported(.brightness): return "sun.max"
         case .unsupported(.volume): return "speaker.slash"
         case .level(let feedback):

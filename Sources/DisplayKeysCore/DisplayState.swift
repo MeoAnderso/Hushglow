@@ -6,6 +6,8 @@ public enum Indication: Equatable, Sendable {
     /// The connected display does not have this control.
     case unsupported(Command.Control)
     case noDisplay
+    /// The app is recording which special keys reach it, at someone's request.
+    case watchingKeys
 }
 
 /// The level the on-screen indicator should show after a command.

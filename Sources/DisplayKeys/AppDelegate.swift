@@ -52,8 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
                 onCommand: { [unowned self] in run($0, showOSD: true) },
                 onShortcutsChanged: { [unowned self] in keyboard.reloadShortcuts() },
                 onKeyTest: { [unowned self] in keyboard.postTestKey() },
-                onWatchKeys: { [unowned self] in keyboard.watch.start(for: $0) },
+                onWatchKeys: { [unowned self] in watchKeys(for: $0) },
+                readValues: { [unowned self] in readValues(of: $0, answer: $1) },
                 status: { [unowned self] in status }))
+        keyboard.watch.onEnd = { [unowned self] in osd.release(.watchingKeys) }
         audio.startListening()
 
         systemEvents.onDisplaysSlept = { [unowned self] in
@@ -114,6 +116,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     private func indicate(_ indication: Indication) {
         osd.show(indication)
         announcer.announce(indication)
+    }
+
+    /// Starts a key watch. Any process on this Mac can ask for one over the command channel,
+    /// so the indicator says that one is running for as long as it runs.
+    private func watchKeys(for seconds: TimeInterval) {
+        guard keyboard.watch.start(for: seconds) else { return }
+        osd.hold(.watchingKeys)
+        announcer.announce(.watchingKeys)
+    }
+
+    /// Reads a feature from the displays for the command line.
+    private func readValues(of feature: DDC.Feature, answer: @escaping @MainActor ([AppStatus.Level]) -> Void) {
+        guard let displays else { return answer([]) }
+        displays.values(of: feature) { values in
+            answer(values.map { AppStatus.Level(current: $0.current, maximum: $0.maximum) })
+        }
     }
 
     private var routingContext: KeyRouting.Context? {

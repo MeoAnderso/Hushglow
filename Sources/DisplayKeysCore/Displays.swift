@@ -84,7 +84,8 @@ public final class Displays<Transport: DisplayTransport> {
     private var entries: [Entry] = []
     /// Supersedes discoveries that are still in flight.
     private var generation = 0
-    /// Changes whenever `entries` is replaced, so readings taken for older entries are dropped.
+    /// Changes whenever `entries` is replaced and when the displays go to sleep, so readings
+    /// taken before that are dropped.
     private var topology = 0
     /// Counts commands per control, so a reading that a newer command has overtaken is dropped.
     private var epochs: [Command.Control: Int] = [:]
@@ -140,8 +141,25 @@ public final class Displays<Transport: DisplayTransport> {
         if !isSyncing { readForWaitingCommands() }
     }
 
+    /// Reads a feature from every display, for the command line. The request waits its turn
+    /// on the queue that everything sent to the displays goes through, so the command line
+    /// never talks to a display while the app does. The cache is left as it is.
+    public func values(of feature: DDC.Feature, completion: @escaping @MainActor ([DDC.Value]) -> Void) {
+        let displays = entries.map(\.display)
+        let transport = transport
+        queue.async {
+            let values = displays.compactMap { transport.get($0, feature) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { completion(values) }
+            }
+        }
+    }
+
     /// Forgets everything pending and stops trusting the cache, for when the displays go to sleep.
     public func suspend() {
+        // Whatever is being read at this moment was asked of displays that were still awake.
+        generation += 1
+        topology += 1
         writer.cancelAll()
         waiting.removeAll()
         preview = nil
@@ -303,22 +321,26 @@ public final class Displays<Transport: DisplayTransport> {
         startEpochs: [Command.Control: Int], topology: Int
     ) {
         isSyncing = false
+        // Readings taken before a rediscovery, or before the displays went to sleep, say
+        // nothing about the displays as they are now. Commands that came since are read for.
+        guard topology == self.topology else {
+            if !unverified.isEmpty { scheduleVerify() }
+            return drainWaiting(read: [])
+        }
         let time = now()
         for (position, feature) in features.enumerated() {
             // Only an answer makes a value fresh. A display that has the feature and did not
             // answer leaves it stale, so that it is read again before it is next relied on.
-            let wasAnswered =
-                topology == self.topology
-                && zip(entries, readings).allSatisfy { entry, values in
-                    values[position] != nil || entry.state.value(of: feature) == nil
-                }
+            let wasAnswered = zip(entries, readings).allSatisfy { entry, values in
+                values[position] != nil || entry.state.value(of: feature) == nil
+            }
             if wasAnswered { syncedAt[feature] = time }
         }
 
         var changed = false
         for control in controls {
-            // Drop a reading that a newer command or a rediscovery has already overtaken.
-            guard topology == self.topology, epochs[control] == startEpochs[control] else { continue }
+            // Drop a reading that a newer command has already overtaken.
+            guard epochs[control] == startEpochs[control] else { continue }
             let afterWrite = isVerify && unverified.remove(control) != nil
             if afterWrite, resendIfNotTaken(control, features: features, readings: readings) { continue }
             for (index, values) in readings.enumerated() {

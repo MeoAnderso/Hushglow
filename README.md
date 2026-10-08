@@ -78,7 +78,8 @@ DisplayKeys get brightness
 
 `DisplayKeys` here is `/Applications/DisplayKeys.app/Contents/MacOS/DisplayKeys`, and
 `DisplayKeys help` lists every command. A command it does not know gets the same list and
-does not start the app.
+does not start the app. While the app is running these commands go through it, `get`
+included, so that only one program talks to the display at a time.
 
 ### When something does not respond
 
@@ -87,7 +88,8 @@ does not start the app.
   shortcuts are registered, and how many key presses it has received and what the last one
   was.
 - `DisplayKeys watch-keys` shows, for ten seconds, which special keys reach the app. Use it
-  to find out what a keyboard's volume keys actually send. Ordinary typing is not recorded.
+  to find out what a keyboard's volume keys actually send. Ordinary typing is not recorded,
+  and the indicator says on screen that a watch is running for as long as it runs.
 - `DisplayKeys doctor` checks the connection to the display. `--write-test` also changes
   brightness and volume by one unit and restores them; `--key-test` sends a simulated volume
   key through the system to prove that such keys reach the app.

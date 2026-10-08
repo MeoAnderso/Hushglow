@@ -62,7 +62,9 @@ struct ChannelNames {
     let keyTest: Notification.Name
     let watchKeys: Notification.Name
     let statusRequest: Notification.Name
-    let statusReplyPrefix: String
+    let valueRequest: Notification.Name
+    /// What the name of every answer starts with.
+    let replyPrefix: String
 
     init(namespace: String) {
         command = Notification.Name("\(namespace).command")
@@ -70,7 +72,8 @@ struct ChannelNames {
         keyTest = Notification.Name("\(namespace).keyTest")
         watchKeys = Notification.Name("\(namespace).watchKeys")
         statusRequest = Notification.Name("\(namespace).statusRequest")
-        statusReplyPrefix = "\(namespace).statusReply."
+        valueRequest = Notification.Name("\(namespace).valueRequest")
+        replyPrefix = "\(namespace).reply."
     }
 }
 
@@ -87,6 +90,8 @@ final class CommandChannel: NSObject {
         var onShortcutsChanged: () -> Void
         var onKeyTest: () -> Void
         var onWatchKeys: (TimeInterval) -> Void
+        /// Reads a feature from the displays and passes on what they answered.
+        var readValues: (DDC.Feature, @escaping @MainActor ([AppStatus.Level]) -> Void) -> Void
         var status: () -> AppStatus
     }
 
@@ -104,6 +109,7 @@ final class CommandChannel: NSObject {
             (#selector(keyTestRequested), names.keyTest),
             (#selector(watchKeysRequested), names.watchKeys),
             (#selector(statusRequested), names.statusRequest),
+            (#selector(valuesRequested), names.valueRequest),
         ] {
             center.addObserver(
                 self, selector: selector, name: name, object: nil, suspensionBehavior: .deliverImmediately)
@@ -136,10 +142,30 @@ final class CommandChannel: NSObject {
     }
 
     @objc private func statusRequested(_ notification: Notification) {
-        // The request names the notification to answer with; only answer names of our own.
-        guard let replyName = notification.object as? String, replyName.hasPrefix(names.statusReplyPrefix),
-            let json = try? JSONEncoder().encode(handlers.status())
+        guard let replyName = replyName(in: notification) else { return }
+        answer(replyName, with: handlers.status())
+    }
+
+    @objc private func valuesRequested(_ notification: Notification) {
+        guard let replyName = replyName(in: notification),
+            let name = (notification.object as? String)?.split(separator: " ").dropFirst().first,
+            let feature = DDC.Feature(name: String(name))
         else { return }
+        let reply: @MainActor ([AppStatus.Level]) -> Void = { [weak self] in self?.answer(replyName, with: $0) }
+        handlers.readValues(feature, reply)
+    }
+
+    /// A request starts with the name of the notification to answer with; only names of our
+    /// own are answered.
+    private func replyName(in notification: Notification) -> String? {
+        guard let name = (notification.object as? String)?.split(separator: " ").first.map(String.init),
+            name.hasPrefix(names.replyPrefix)
+        else { return nil }
+        return name
+    }
+
+    private func answer(_ replyName: String, with value: some Encodable) {
+        guard let json = try? JSONEncoder().encode(value) else { return }
         post(Notification.Name(replyName), String(decoding: json, as: UTF8.self))
     }
 }
@@ -171,47 +197,79 @@ struct CommandClient {
 
     /// Asks the app for its status and waits for the answer; nil when nothing answers in time.
     func requestStatus(timeout: TimeInterval = 1.5) -> AppStatus? {
-        let request = beginStatusRequest()
-        defer { request.finish() }
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        while request.status == nil, Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
-        }
-        return request.status
+        wait(for: beginStatusRequest(), timeout: timeout)
     }
 
     /// Asks the app for its status without waiting; the answer appears on the returned request.
-    func beginStatusRequest() -> StatusRequest {
-        StatusRequest(names: names)
+    func beginStatusRequest() -> Request<AppStatus> {
+        Request(names.statusRequest, replyPrefix: names.replyPrefix)
+    }
+
+    /// Has the app read a feature from the displays and waits for what they answered, one
+    /// value per display; nil when the app does not answer in time. A read can take a few
+    /// hundred milliseconds when a display is slow.
+    func requestValues(of feature: DDC.Feature, timeout: TimeInterval = 3) -> [AppStatus.Level]? {
+        wait(for: beginValueRequest(of: feature), timeout: timeout)
+    }
+
+    func beginValueRequest(of feature: DDC.Feature) -> Request<[AppStatus.Level]> {
+        Request(names.valueRequest, replyPrefix: names.replyPrefix, argument: feature.name)
+    }
+
+    private func wait<Answer>(for request: Request<Answer>, timeout: TimeInterval) -> Answer? {
+        defer { request.finish() }
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while request.answer == nil, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        return request.answer
     }
 }
 
-/// A status request in flight.
+/// A question to the app that is waiting for its answer.
 @MainActor
-final class StatusRequest {
+final class Request<Answer: Decodable> {
+    private let listener: ReplyListener
+
+    /// The request carries the name to answer with, then the argument when there is one.
+    fileprivate init(_ name: Notification.Name, replyPrefix: String, argument: String? = nil) {
+        listener = ReplyListener(prefix: replyPrefix)
+        post(name, [listener.name.rawValue, argument].compactMap { $0 }.joined(separator: " "))
+    }
+
+    /// The app's answer, once it has arrived.
+    var answer: Answer? {
+        listener.json.flatMap { try? JSONDecoder().decode(Answer.self, from: Data($0.utf8)) }
+    }
+
+    func finish() {
+        listener.stop()
+    }
+}
+
+/// Listens for one answer under a name of its own.
+@MainActor
+private final class ReplyListener {
     private final class Reply: @unchecked Sendable {
         var json: String?
     }
 
+    let name: Notification.Name
     private let reply = Reply()
     private let observer: NSObjectProtocol
 
-    fileprivate init(names: ChannelNames) {
+    init(prefix: String) {
         let reply = reply
-        let replyName = Notification.Name(names.statusReplyPrefix + UUID().uuidString)
+        name = Notification.Name(prefix + UUID().uuidString)
         // No queue: the answer is taken as it is delivered, on the main thread.
-        observer = DistributedNotificationCenter.default().addObserver(forName: replyName, object: nil, queue: nil) {
+        observer = DistributedNotificationCenter.default().addObserver(forName: name, object: nil, queue: nil) {
             reply.json = $0.object as? String
         }
-        post(names.statusRequest, replyName.rawValue)
     }
 
-    /// The app's answer, once it has arrived.
-    var status: AppStatus? {
-        reply.json.flatMap { try? JSONDecoder().decode(AppStatus.self, from: Data($0.utf8)) }
-    }
+    var json: String? { reply.json }
 
-    func finish() {
+    func stop() {
         DistributedNotificationCenter.default().removeObserver(observer)
     }
 }

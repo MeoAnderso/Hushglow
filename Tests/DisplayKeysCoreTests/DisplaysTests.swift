@@ -96,6 +96,7 @@ private final class Recorder {
     var fractions: [Double?] = []
     var finals: [Bool] = []
     var mismatches: [DisplayMismatch] = []
+    var readings: [[DDC.Value]] = []
     var now = Date(timeIntervalSince1970: 1_000_000)
 }
 
@@ -280,6 +281,42 @@ private final class Recorder {
         await settle { transport.discoveries == 9 }
         try? await Task.sleep(for: .milliseconds(80))
         #expect(transport.discoveries == 9)
+    }
+
+    @Test func aReadInFlightWhenTheDisplaysGoToSleepIsDropped() async {
+        pause()
+        press(brightnessUp)  // the display is being read as it goes to sleep
+        displays.suspend()
+        await settle()
+        _ = transport.takeEvents()
+
+        // What was read on the way into sleep does not make the cache fresh again.
+        press(brightnessUp)
+        await settle()
+        #expect(Array(transport.takeEvents().prefix(2)) == ["get brightness", "set brightness=56"])
+    }
+
+    @Test func aDiscoveryInFlightWhenTheDisplaysGoToSleepIsDropped() async {
+        transport.change(.brightness, to: 80)
+        displays.refresh()
+        displays.suspend()
+        await settle()
+        #expect(displays.primary?.brightness?.current == 50)
+        _ = transport.takeEvents()
+
+        press(brightnessUp)
+        await settle()
+        #expect(transport.takeEvents().first == "get brightness")
+    }
+
+    @Test func readsTheDisplayForTheCommandLineAndLeavesTheCacheAlone() async {
+        transport.change(.brightness, to: 80)
+        let recorder = recorder
+        displays.values(of: .brightness) { recorder.readings.append($0) }
+        await settle()
+        #expect(recorder.readings == [[DDC.Value(current: 80, maximum: 100)]])
+        #expect(transport.takeEvents() == ["get brightness"])
+        #expect(displays.primary?.brightness?.current == 50)
     }
 
     @Test func suspendDropsCommandsThatAreStillWaiting() async {

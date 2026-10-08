@@ -132,16 +132,18 @@ private func writePreviews(of view: NSView, named name: String) throws {
 
     @Test func messagesAreDrawnInsteadOfABar() throws {
         let full = filledColumns(try render(view(level(.brightness, 1))))
-        for indication in [Indication.noDisplay, .refused(.brightness), .unsupported(.volume)] {
+        for indication in [Indication.noDisplay, .refused(.brightness), .unsupported(.volume), .watchingKeys] {
             let columns = filledColumns(try render(view(indication)))
             #expect(columns > 0 && columns < full)
         }
+        try writePreviews(of: view(.watchingKeys), named: "indicator-watching")
     }
 
     @Test func describesItselfForVoiceOver() {
         #expect(Announcer.words(for: level(.brightness, 0.5625)) == "Brightness 56 percent")
         #expect(Announcer.words(for: level(.muted, 0.3)) == "Muted")
         #expect(Announcer.words(for: .refused(.volume)) == "Volume is locked by the display")
+        #expect(Announcer.words(for: .watchingKeys) == "Watching special keys")
     }
 }
 
@@ -812,6 +814,7 @@ private final class StubMenuHost: StatusMenuHost {
         var shortcutChanges = 0
         var keyTests = 0
         var watches: [TimeInterval] = []
+        var reads: [DDC.Feature] = []
     }
 
     /// Waits without blocking the main thread, which is where the notifications arrive.
@@ -840,6 +843,7 @@ private final class StubMenuHost: StatusMenuHost {
                 onShortcutsChanged: { received.shortcutChanges += 1 },
                 onKeyTest: { received.keyTests += 1 },
                 onWatchKeys: { received.watches.append($0) },
+                readValues: { _, _ in },
                 status: makeStatus))
         defer { channel.stop() }
         let client = CommandClient(namespace: namespace)
@@ -861,13 +865,14 @@ private final class StubMenuHost: StatusMenuHost {
         let channel = CommandChannel(
             namespace: namespace,
             handlers: .init(
-                onCommand: { _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in }, status: makeStatus))
+                onCommand: { _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in },
+                readValues: { _, _ in }, status: makeStatus))
         defer { channel.stop() }
 
         let request = CommandClient(namespace: namespace).beginStatusRequest()
         defer { request.finish() }
-        await wait { request.status != nil }
-        let status = try #require(request.status)
+        await wait { request.answer != nil }
+        let status = try #require(request.answer)
         #expect(status.version == "9.9.9")
         #expect(status.build == "abc1234")
         #expect(status.brightness?.current == 61)
@@ -887,8 +892,44 @@ private final class StubMenuHost: StatusMenuHost {
         #expect(!CLI.describe(older).contains("Memory"))
     }
 
+    /// `DisplayKeys get` has the running app read the display, and gets what it answered.
+    @Test func hasTheAppReadAValue() async throws {
+        let received = Received()
+        let channel = CommandChannel(
+            namespace: namespace,
+            handlers: .init(
+                onCommand: { _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in },
+                readValues: { feature, answer in
+                    received.reads.append(feature)
+                    answer([.init(current: 13, maximum: 100)])
+                }, status: makeStatus))
+        defer { channel.stop() }
+
+        let request = CommandClient(namespace: namespace).beginValueRequest(of: .volume)
+        defer { request.finish() }
+        await wait { request.answer != nil }
+        let values = try #require(request.answer)
+        #expect(received.reads == [.volume])
+        #expect(values.map(\.current) == [13] && values.map(\.maximum) == [100])
+    }
+
     @Test func waitingForAnAnswerGivesUpWhenThereIsNone() {
-        #expect(CommandClient(namespace: namespace).requestStatus(timeout: 0.2) == nil)
+        let client = CommandClient(namespace: namespace)
+        #expect(client.requestStatus(timeout: 0.2) == nil)
+        #expect(client.requestValues(of: .brightness, timeout: 0.2) == nil)
+    }
+}
+
+@MainActor
+@Suite struct KeyWatchTests {
+    /// The end of a watch takes the indicator's notice of it away, so only a watch that ran
+    /// may report one.
+    @Test func onlyAWatchThatRanReportsItsEnd() {
+        let watch = KeyWatch()
+        var ended = 0
+        watch.onEnd = { ended += 1 }
+        watch.stop()
+        #expect(ended == 0 && !watch.isWatching)
     }
 }
 
@@ -1066,6 +1107,31 @@ extension GlassWindowTests {
 
 @MainActor
 @Suite struct IndicatorOnScreenTests {
+    /// An indication that is held, as for a key watch, stays until it is released; a level
+    /// shown meanwhile takes its place and gives it back. Runs only when PREVIEW_DIR is set,
+    /// since it shows the indicator.
+    @Test func aHeldIndicationGivesWayAndComesBack() async throws {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let osd = OSD()
+        let level = Indication.level(Feedback(kind: .volume, fraction: 0.5))
+
+        osd.hold(.watchingKeys)
+        #expect(osd.shown == .watchingKeys && osd.isOnScreen)
+        // Its time on screen being up does not take away what is held.
+        osd.timeIsUp()
+        #expect(osd.shown == .watchingKeys && osd.isOnScreen)
+
+        osd.show(level)
+        #expect(osd.shown == level)
+        osd.timeIsUp()
+        #expect(osd.shown == .watchingKeys && osd.isOnScreen)
+
+        osd.release(.watchingKeys)
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(!osd.isOnScreen)
+    }
+
     /// Pictures of the capsules the app really builds, composited over a page by the window
     /// server. Only this process's own windows are captured. Runs only when PREVIEW_DIR is set,
     /// since it puts a window on screen for a moment.

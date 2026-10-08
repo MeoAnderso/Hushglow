@@ -20,6 +20,8 @@ final class KeyWatch {
     /// What the last watch saw; nil until one has run.
     private(set) var seen: [String]?
     private(set) var isWatching = false
+    /// Called when a watch that was running stops, whether its time is up or it was cut short.
+    var onEnd: (() -> Void)?
     private var port: CFMachPort?
     private var source: CFRunLoopSource?
     private var session = 0
@@ -64,6 +66,7 @@ final class KeyWatch {
         CFMachPortInvalidate(port)
         self.port = nil
         source = nil
+        onEnd?()
     }
 
     fileprivate func record(_ description: String) {

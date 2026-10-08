@@ -2,13 +2,15 @@ import AppKit
 import DisplayKeysCore
 import ServiceManagement
 
-/// Command-line front end. Commands go to the running app when there is one, so its cached
-/// state and on-screen indicator stay in sync; otherwise they are sent to the display directly.
+/// Command-line front end. Commands and readings go through the running app when there is one,
+/// so its cached state and on-screen indicator stay in sync and only one process talks to the
+/// display; otherwise they are sent to the display directly.
 @MainActor
 enum CLI {
     private static let quarterStepsWord = "quarter-steps"
     private static let noTransport = "This macOS no longer provides the display control functions."
     private static let notRunning = "\(AppInfo.name) is not running."
+    private static let didNotAnswer = "\(AppInfo.name) is running but did not answer."
     private static let client = CommandClient()
 
     private static let usage = """
@@ -69,10 +71,18 @@ enum CLI {
     }
 
     private static func get(_ arguments: [String]) -> Int32 {
-        let features: [String: DDC.Feature] = ["brightness": .brightness, "volume": .volume, "mute": .mute]
-        guard arguments.count == 2, let feature = features[arguments[1]] else { return fail(usage, status: 64) }
-        guard let io = IOAV.shared else { return fail(noTransport) }
-        let values = io.displays().compactMap { io.get($0, feature) }
+        guard arguments.count == 2, let feature = DDC.Feature(name: arguments[1]) else {
+            return fail(usage, status: 64)
+        }
+        let values: [DDC.Value]
+        if AppInfo.otherInstance != nil {
+            // The running app does the reading: two processes must not talk to a display at once.
+            guard let answer = client.requestValues(of: feature) else { return fail(didNotAnswer) }
+            values = answer.map { DDC.Value(current: $0.current, maximum: $0.maximum) }
+        } else {
+            guard let io = IOAV.shared else { return fail(noTransport) }
+            values = io.displays().compactMap { io.get($0, feature) }
+        }
         guard !values.isEmpty else { return fail("No connected display answered.") }
         for value in values {
             print(
@@ -157,7 +167,7 @@ enum CLI {
 
     private static func status() -> Int32 {
         guard AppInfo.otherInstance != nil else { return fail(notRunning) }
-        guard let status = client.requestStatus() else { return fail("\(AppInfo.name) is running but did not answer.") }
+        guard let status = client.requestStatus() else { return fail(didNotAnswer) }
         return succeed(describe(status))
     }
 

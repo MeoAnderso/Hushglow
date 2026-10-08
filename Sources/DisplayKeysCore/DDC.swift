@@ -8,10 +8,24 @@ public enum DDC {
     public static let hostAddress: UInt32 = 0x51
     public static let getReplyLength = 11
 
-    public enum Feature: UInt8, Sendable {
+    public enum Feature: UInt8, Sendable, CaseIterable {
         case brightness = 0x10
         case volume = 0x62
         case mute = 0x8D
+
+        /// The feature as it is written on the command line.
+        public var name: String {
+            switch self {
+            case .brightness: "brightness"
+            case .volume: "volume"
+            case .mute: "mute"
+            }
+        }
+
+        public init?(name: String) {
+            guard let feature = Self.allCases.first(where: { $0.name == name }) else { return nil }
+            self = feature
+        }
     }
 
     /// Values of the mute feature (VCP 0x8D).

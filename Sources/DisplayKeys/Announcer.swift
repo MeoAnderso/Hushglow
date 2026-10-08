@@ -26,6 +26,7 @@ final class Announcer: NSObject {
         case .refused(let control): "\(control.rawValue.capitalized) is locked by the display"
         case .unsupported(let control): "This display has no \(control.rawValue) control"
         case .noDisplay: "No display to control"
+        case .watchingKeys: "Watching special keys"
         }
     }
 

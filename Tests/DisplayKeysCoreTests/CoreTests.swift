@@ -26,6 +26,12 @@ import Testing
         }
     }
 
+    @Test func aFeatureHasItsCommandLineName() {
+        for feature in DDC.Feature.allCases { #expect(DDC.Feature(name: feature.name) == feature) }
+        #expect(DDC.Feature(name: "volume") == .volume)
+        #expect(DDC.Feature(name: "contrast") == nil)
+    }
+
     @Test func rejectsBadReplies() {
         let null: [UInt8] = [0x6E, 0x80, 0xBE, 0x00, 0xE6, 0xD2, 0xD0, 0xA4, 0x0A, 0xF9, 0xAB]
         #expect(throws: DDC.ReplyError.notReady) { try DDC.parseGetReply(null, feature: .brightness) }
