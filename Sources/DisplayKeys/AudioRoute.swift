@@ -14,7 +14,8 @@ final class AudioRoute {
         guard !isListening else { return }
         isListening = true
         var address = Self.propertyAddress(kAudioHardwarePropertyDefaultOutputDevice)
-        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main) { [weak self] _, _ in
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main) {
+            [weak self] _, _ in
             let route = self
             MainActor.assumeIsolated { route?.refresh() }
         }
@@ -22,7 +23,8 @@ final class AudioRoute {
     }
 
     func refresh() {
-        let isDisplay = Self.defaultOutputDevice().map { Self.isDisplayTransport($0) && !Self.hasVolumeControl($0) } ?? false
+        let isDisplay =
+            Self.defaultOutputDevice().map { Self.isDisplayTransport($0) && !Self.hasVolumeControl($0) } ?? false
         guard isDisplay != outputIsDisplay else { return }
         outputIsDisplay = isDisplay
         onChange?()
@@ -40,7 +42,8 @@ final class AudioRoute {
         var address = propertyAddress(kAudioHardwarePropertyDefaultOutputDevice)
         var device = AudioDeviceID(kAudioObjectUnknown)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device)
         return status == noErr && device != AudioDeviceID(kAudioObjectUnknown) ? device : nil
     }
 

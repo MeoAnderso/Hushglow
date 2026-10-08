@@ -1,8 +1,16 @@
 /// An action on the display, shared by keys, shortcuts, the menu and the command line.
 public enum Command: Equatable, Sendable {
-    public enum Control: String, Sendable {
+    public enum Control: String, Sendable, CaseIterable {
         case brightness
         case volume
+
+        /// The display features a control is made of.
+        public var features: [DDC.Feature] {
+            switch self {
+            case .brightness: [.brightness]
+            case .volume: [.volume, .mute]
+            }
+        }
     }
 
     public enum MuteAction: String, Sendable {
@@ -41,14 +49,22 @@ public enum Command: Equatable, Sendable {
         }
     }
 
+    /// The control this command acts on; mute belongs to volume.
+    public var control: Control {
+        switch self {
+        case .step(let control, _, _), .set(let control, _): control
+        case .mute: .volume
+        }
+    }
+
     /// The words that `init(words:)` parses back into this command.
     public var words: [String] {
         switch self {
-        case let .step(control, up, fine):
+        case .step(let control, let up, let fine):
             ["step", control.rawValue, up ? "up" : "down"] + (fine ? ["--fine"] : [])
-        case let .set(control, percent):
+        case .set(let control, let percent):
             ["set", control.rawValue, String(percent)]
-        case let .mute(action):
+        case .mute(let action):
             ["mute", action.rawValue]
         }
     }

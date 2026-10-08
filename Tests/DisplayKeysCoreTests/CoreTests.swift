@@ -112,8 +112,8 @@ import Testing
     }
 
     @Test func ignoresOtherEvents() {
-        #expect(MediaKeyEvent(subtype: 7, data1: 0x0000_0A00) == nil) // mouse buttons
-        #expect(MediaKeyEvent(subtype: 8, data1: 0x0010_0A00) == nil) // play/pause
+        #expect(MediaKeyEvent(subtype: 7, data1: 0x0000_0A00) == nil)  // mouse buttons
+        #expect(MediaKeyEvent(subtype: 8, data1: 0x0010_0A00) == nil)  // play/pause
     }
 }
 
@@ -141,7 +141,9 @@ import Testing
 }
 
 @Suite struct DisplayStateTests {
-    private func state(volume: Int = 13, mute: DDC.Value? = DDC.Value(current: DDC.Mute.off, maximum: 2)) -> DisplayState {
+    private func state(
+        volume: Int = 13, mute: DDC.Value? = DDC.Value(current: DDC.Mute.off, maximum: 2)
+    ) -> DisplayState {
         DisplayState(
             brightness: DDC.Value(current: 50, maximum: 100),
             volume: DDC.Value(current: volume, maximum: 100),
@@ -223,26 +225,32 @@ import Testing
         brightness: Bool = true, volume: Bool = true, soundGoesToDisplay: Bool = true, builtIn: Bool = false
     ) -> KeyRouting.Context {
         KeyRouting.Context(
-            hasBrightness: brightness, hasVolume: volume, soundGoesToDisplay: soundGoesToDisplay, mainDisplayIsBuiltIn: builtIn
+            hasBrightness: brightness, hasVolume: volume, soundGoesToDisplay: soundGoesToDisplay,
+            mainDisplayIsBuiltIn: builtIn
         )
     }
 
     @Test func runsCommandsForTheDisplaysKeys() {
         #expect(KeyRouting.decide(key(0), fine: false, in: context()) == .run(.step(.volume, up: true, fine: false)))
         #expect(KeyRouting.decide(key(1), fine: true, in: context()) == .run(.step(.volume, up: false, fine: true)))
-        #expect(KeyRouting.decide(key(2), fine: false, in: context()) == .run(.step(.brightness, up: true, fine: false)))
-        #expect(KeyRouting.decide(key(3), fine: false, in: context()) == .run(.step(.brightness, up: false, fine: false)))
+        #expect(
+            KeyRouting.decide(key(2), fine: false, in: context()) == .run(.step(.brightness, up: true, fine: false)))
+        #expect(
+            KeyRouting.decide(key(3), fine: false, in: context()) == .run(.step(.brightness, up: false, fine: false)))
         #expect(KeyRouting.decide(key(7), fine: false, in: context()) == .run(.mute(.toggle)))
     }
 
     @Test func holdingAKeyRepeatsStepsButNotMute() {
-        #expect(KeyRouting.decide(key(0, isRepeat: true), fine: false, in: context()) == .run(.step(.volume, up: true, fine: false)))
+        #expect(
+            KeyRouting.decide(key(0, isRepeat: true), fine: false, in: context())
+                == .run(.step(.volume, up: true, fine: false)))
         #expect(KeyRouting.decide(key(7, isRepeat: true), fine: false, in: context()) == .swallow)
     }
 
     @Test func keyReleasesAreSwallowedWithTheirPresses() {
         #expect(KeyRouting.decide(key(0, down: false), fine: false, in: context()) == .swallow)
-        #expect(KeyRouting.decide(key(0, down: false), fine: false, in: context(soundGoesToDisplay: false)) == .passThrough)
+        #expect(
+            KeyRouting.decide(key(0, down: false), fine: false, in: context(soundGoesToDisplay: false)) == .passThrough)
     }
 
     @Test func leavesVolumeKeysToTheSystemWhenSoundGoesElsewhere() {
@@ -276,8 +284,11 @@ import Testing
     }
 
     /// A writer whose first send blocks until `release` is signalled, like a slow display.
-    private func blockedWriter(_ recorder: Recorder) -> (
-        writer: CoalescingWriter<Target, String>, queue: DispatchQueue, started: DispatchSemaphore, release: DispatchSemaphore
+    private func blockedWriter(
+        _ recorder: Recorder
+    ) -> (
+        writer: CoalescingWriter<Target, String>, queue: DispatchQueue, started: DispatchSemaphore,
+        release: DispatchSemaphore
     ) {
         let queue = DispatchQueue(label: "CoalescingWriterTests")
         let started = DispatchSemaphore(value: 0)
@@ -309,7 +320,8 @@ import Testing
     @Test func keepsTargetsSeparate() {
         let recorder = Recorder()
         let (writer, queue, started, release) = blockedWriter(recorder)
-        let first = Target(), second = Target()
+        let first = Target()
+        let second = Target()
 
         writer.submit(first, "brightness", 1)
         started.wait()

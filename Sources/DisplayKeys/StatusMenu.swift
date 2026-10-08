@@ -2,22 +2,35 @@ import AppKit
 import DisplayKeysCore
 import ServiceManagement
 
+/// What the menu needs from the app.
+@MainActor
+protocol StatusMenuHost: AnyObject {
+    var displayState: DisplayState? { get }
+    var displayControlIsAvailable: Bool { get }
+    var keyboardKeysAreActive: Bool { get }
+    func run(_ command: Command, showOSD: Bool)
+    func refreshDisplays()
+    func enableKeyboardKeys()
+}
+
 /// The menu bar item: sliders for mouse control, plus status, permission and login settings.
 /// The menu's contents are refreshed only when it opens.
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
-    private unowned let app: AppDelegate
+    private unowned let host: any StatusMenuHost
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let brightnessRow = SliderRow(symbol: "sun.max.fill")
     private let volumeRow = SliderRow(symbol: "speaker.wave.2.fill")
     private let brightnessItem = NSMenuItem()
     private let volumeItem = NSMenuItem()
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private let accessItem = NSMenuItem(title: "Enable Keyboard Volume Keys…", action: #selector(requestAccess), keyEquivalent: "")
-    private let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+    private let accessItem = NSMenuItem(
+        title: "Enable Keyboard Volume Keys…", action: #selector(enableKeyboardKeys), keyEquivalent: "")
+    private let loginItem = NSMenuItem(
+        title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
 
-    init(app: AppDelegate) {
-        self.app = app
+    init(host: any StatusMenuHost) {
+        self.host = host
         super.init()
         item.button?.image = NSImage(systemSymbolName: "sun.max", accessibilityDescription: AppInfo.name)
 
@@ -28,7 +41,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         volumeRow.slider.action = #selector(volumeChanged)
         volumeItem.view = volumeRow
 
-        let quitItem = NSMenuItem(title: "Quit \(AppInfo.name)", action: #selector(NSApplication.terminate), keyEquivalent: "q")
+        let quitItem = NSMenuItem(
+            title: "Quit \(AppInfo.name)", action: #selector(NSApplication.terminate), keyEquivalent: "q")
         accessItem.target = self
         loginItem.target = self
         statusLine.isEnabled = false
@@ -36,20 +50,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        menu.items = [brightnessItem, volumeItem, .separator(), statusLine, accessItem, .separator(), loginItem, quitItem]
+        menu.items = [
+            brightnessItem, volumeItem, .separator(), statusLine, accessItem, .separator(), loginItem, quitItem,
+        ]
         item.menu = menu
     }
 
-    var isVisible: Bool { item.isVisible && item.button != nil }
-
     func menuWillOpen(_ menu: NSMenu) {
         // Values changed with the display's own buttons are picked up here.
-        app.refreshDisplays()
+        host.refreshDisplays()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         updateControls()
-        accessItem.isHidden = app.keyTapIsRunning
+        accessItem.isHidden = host.keyboardKeysAreActive
 
         // Login items point at the app's location, so only offer it once the app is installed.
         let isInstalled = Bundle.main.bundlePath.contains("/Applications/")
@@ -64,13 +78,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     private func updateControls() {
-        let state = app.displayState
+        let state = host.displayState
         brightnessItem.isHidden = state?.brightness == nil
         volumeItem.isHidden = state?.volume == nil
         if let brightness = state?.brightness { brightnessRow.slider.doubleValue = brightness.fraction * 100 }
-        if let volume = state?.volume { volumeRow.slider.doubleValue = state?.isMuted == true ? 0 : volume.fraction * 100 }
+        if let volume = state?.volume {
+            volumeRow.slider.doubleValue = state?.isMuted == true ? 0 : volume.fraction * 100
+        }
 
-        if !app.displayControlIsAvailable {
+        if !host.displayControlIsAvailable {
             statusLine.title = "Display control is unavailable on this macOS"
         } else if state == nil {
             statusLine.title = "No controllable display found"
@@ -81,15 +97,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func brightnessChanged(_ sender: NSSlider) {
-        app.run(.set(.brightness, percent: Int(sender.doubleValue.rounded())), showOSD: false)
+        host.run(.set(.brightness, percent: Int(sender.doubleValue.rounded())), showOSD: false)
     }
 
     @objc private func volumeChanged(_ sender: NSSlider) {
-        app.run(.set(.volume, percent: Int(sender.doubleValue.rounded())), showOSD: false)
+        host.run(.set(.volume, percent: Int(sender.doubleValue.rounded())), showOSD: false)
     }
 
-    @objc private func requestAccess() {
-        app.requestAccessibility(openSettings: true)
+    @objc private func enableKeyboardKeys() {
+        host.enableKeyboardKeys()
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -101,7 +117,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             }
         } catch {
             NSSound.beep()
-            AppDelegate.log.error("Launch at login could not be changed: \(error.localizedDescription, privacy: .public)")
+            log.error("Launch at login could not be changed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

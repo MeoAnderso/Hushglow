@@ -65,7 +65,8 @@ import Testing
             ("muted", Feedback(kind: .muted, fraction: 0.5)),
         ]
         let scale: CGFloat = 3
-        let sheet = NSImage(size: NSSize(width: OSD.size.width + 24, height: (OSD.size.height + 12) * CGFloat(samples.count) + 12))
+        let sheet = NSImage(
+            size: NSSize(width: OSD.size.width + 24, height: (OSD.size.height + 12) * CGFloat(samples.count) + 12))
         sheet.lockFocus()
         NSColor(white: 0.45, alpha: 1).setFill()
         NSRect(origin: .zero, size: sheet.size).fill()
@@ -76,15 +77,18 @@ import Testing
             )
             NSColor(white: 0.12, alpha: 0.92).setFill()
             NSBezierPath(roundedRect: frame, xRadius: frame.height / 2, yRadius: frame.height / 2).fill()
-            try render(sample.1).draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+            try render(sample.1).draw(
+                in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
         }
         sheet.unlockFocus()
 
         let pixels = NSSize(width: sheet.size.width * scale, height: sheet.size.height * scale)
-        let bitmap = try #require(NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: Int(pixels.width), pixelsHigh: Int(pixels.height), bitsPerSample: 8,
-            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-        ))
+        let bitmap = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(pixels.width), pixelsHigh: Int(pixels.height), bitsPerSample: 8,
+                samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0,
+                bitsPerPixel: 0
+            ))
         bitmap.size = sheet.size
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)

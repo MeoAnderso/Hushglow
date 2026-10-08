@@ -19,10 +19,11 @@ final class OSD: NSObject {
         indicator?.feedback = feedback
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             let area = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(
-                x: area.maxX - Self.size.width - Self.margin,
-                y: area.maxY - Self.size.height - Self.margin
-            ))
+            panel.setFrameOrigin(
+                NSPoint(
+                    x: area.maxX - Self.size.width - Self.margin,
+                    y: area.maxY - Self.size.height - Self.margin
+                ))
         }
         // Replaces a fade that may be in flight.
         NSAnimationContext.runAnimationGroup { context in
@@ -36,20 +37,23 @@ final class OSD: NSObject {
 
     @objc private func fadeOut() {
         guard let panel else { return }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.fadeDuration
-            panel.animator().alphaValue = 0
-        }, completionHandler: {
-            MainActor.assumeIsolated {
-                // A key press during the fade brings the panel back; leave it on screen then.
-                if panel.alphaValue == 0 { panel.orderOut(nil) }
-            }
-        })
+        NSAnimationContext.runAnimationGroup(
+            { context in
+                context.duration = Self.fadeDuration
+                panel.animator().alphaValue = 0
+            },
+            completionHandler: {
+                MainActor.assumeIsolated {
+                    // A key press during the fade brings the panel back; leave it on screen then.
+                    if panel.alphaValue == 0 { panel.orderOut(nil) }
+                }
+            })
     }
 
     private func makePanel() -> NSPanel {
         let frame = NSRect(origin: .zero, size: Self.size)
-        let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        let panel = NSPanel(
+            contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -155,7 +159,8 @@ final class OSDView: NSView {
         if let cached = symbols[name] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
             .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(
+            configuration)
         symbols[name] = image
         return image
     }

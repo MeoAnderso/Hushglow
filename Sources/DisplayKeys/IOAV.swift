@@ -19,14 +19,16 @@ final class AVService: @unchecked Sendable {
 ///
 /// Apple Silicon has no public DDC API. The symbols are resolved at runtime so that a macOS
 /// release that removes them leaves the app running with no displays instead of failing to launch.
-struct IOAV: Sendable {
+struct IOAV: DisplayTransport {
     private typealias CreateWithService = @convention(c) (UnsafeRawPointer?, io_service_t) -> UnsafeMutableRawPointer?
-    private typealias ReadI2C = @convention(c) (
-        UnsafeMutableRawPointer, UInt32, UInt32, UnsafeMutableRawPointer, UInt32
-    ) -> IOReturn
-    private typealias WriteI2C = @convention(c) (
-        UnsafeMutableRawPointer, UInt32, UInt32, UnsafeRawPointer, UInt32
-    ) -> IOReturn
+    private typealias ReadI2C =
+        @convention(c) (
+            UnsafeMutableRawPointer, UInt32, UInt32, UnsafeMutableRawPointer, UInt32
+        ) -> IOReturn
+    private typealias WriteI2C =
+        @convention(c) (
+            UnsafeMutableRawPointer, UInt32, UInt32, UnsafeRawPointer, UInt32
+        ) -> IOReturn
 
     /// nil when this macOS no longer exports the IOAVService functions.
     static let shared = IOAV()
@@ -43,28 +45,29 @@ struct IOAV: Sendable {
     private let writeI2C: WriteI2C
 
     private init?() {
-        let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2) // RTLD_DEFAULT
+        let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2)  // RTLD_DEFAULT
         guard let create = dlsym(defaultHandle, "IOAVServiceCreateWithService"),
-              let read = dlsym(defaultHandle, "IOAVServiceReadI2C"),
-              let write = dlsym(defaultHandle, "IOAVServiceWriteI2C")
+            let read = dlsym(defaultHandle, "IOAVServiceReadI2C"),
+            let write = dlsym(defaultHandle, "IOAVServiceWriteI2C")
         else { return nil }
         createWithService = unsafeBitCast(create, to: CreateWithService.self)
         readI2C = unsafeBitCast(read, to: ReadI2C.self)
         writeI2C = unsafeBitCast(write, to: WriteI2C.self)
     }
 
-    /// One service per external display, whether or not the display speaks DDC.
-    func externalServices() -> [AVService] {
+    func displays() -> [AVService] {
         var iterator: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("DCPAVServiceProxy"), &iterator)
-            == KERN_SUCCESS
+        guard
+            IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("DCPAVServiceProxy"), &iterator)
+                == KERN_SUCCESS
         else { return [] }
         defer { IOObjectRelease(iterator) }
 
         var services: [AVService] = []
         while case let entry = IOIteratorNext(iterator), entry != 0 {
             defer { IOObjectRelease(entry) }
-            let location = IORegistryEntryCreateCFProperty(entry, "Location" as CFString, kCFAllocatorDefault, 0)?
+            let location =
+                IORegistryEntryCreateCFProperty(entry, "Location" as CFString, kCFAllocatorDefault, 0)?
                 .takeRetainedValue() as? String
             guard location == "External", let reference = createWithService(nil, entry) else { continue }
             services.append(AVService(reference: reference))
@@ -72,7 +75,6 @@ struct IOAV: Sendable {
         return services
     }
 
-    /// Reads a feature; nil when the display does not answer or does not implement it.
     func get(_ service: AVService, _ feature: DDC.Feature) -> DDC.Value? {
         for attempt in 0..<Self.readAttempts {
             if attempt > 0 { usleep(Self.retryWait) }
@@ -94,18 +96,9 @@ struct IOAV: Sendable {
         return nil
     }
 
-    /// Writes a feature. Success means the bytes were sent, not that the display honoured them.
     @discardableResult
     func set(_ service: AVService, _ feature: DDC.Feature, value: Int) -> Bool {
         send(service, DDC.setRequest(feature, value: value))
-    }
-
-    func state(of service: AVService) -> DisplayState {
-        DisplayState(
-            brightness: get(service, .brightness),
-            volume: get(service, .volume),
-            mute: get(service, .mute)
-        )
     }
 
     private func send(_ service: AVService, _ packet: [UInt8]) -> Bool {

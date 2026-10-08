@@ -2,8 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import DisplayKeysCore
 
-/// Global shortcuts through Carbon hot keys, which need no permission and cost nothing while
-/// idle. Each stepping shortcut is also registered with Shift added, for quarter steps.
+/// Global shortcuts through Carbon hot keys, which need no permission and cost nothing while idle.
 @MainActor
 final class Hotkeys: NSObject {
     typealias Handler = @MainActor (Shortcut.Action, _ fine: Bool) -> Void
@@ -14,11 +13,14 @@ final class Hotkeys: NSObject {
         let fine: Bool
     }
 
-    private static let signature: OSType = 0x444B_4559 // "DKEY"
+    private static let signature: OSType = 0x444B_4559  // "DKEY"
     private static let repeatDelay: TimeInterval = 0.4
     private static let repeatInterval: TimeInterval = 0.07
     /// Stops a repeat whose key release was never delivered; enough to cross the whole range.
     private static let maximumRepeats = Level.fineSteps
+
+    /// One entry per shortcut that was asked for, including those macOS refused.
+    private(set) var statuses: [AppStatus.ShortcutStatus] = []
 
     private let handler: Handler
     private var registrations: [UInt32: Registration] = [:]
@@ -30,26 +32,30 @@ final class Hotkeys: NSObject {
         self.handler = handler
     }
 
-    /// Registers the shortcuts currently configured, replacing any earlier registration.
-    /// Returns how many were registered, counting the Shift variants.
-    @discardableResult
-    func reload() -> Int {
+    /// Registers the configured shortcuts, replacing any earlier registration. With quarter
+    /// steps switched on, each stepping shortcut is also registered with Shift added.
+    func reload() {
         unregisterAll()
         installEventHandler()
+        let quarterSteps = ShortcutSettings.quarterSteps
         for (index, action) in Shortcut.Action.allCases.enumerated() {
-            guard let text = ShortcutSettings.text(for: action), let shortcut = Shortcut(text) else { continue }
-            register(shortcut.keyCode, shortcut.modifiers, id: UInt32(index * 2), action: action, fine: false)
-            if action.repeatsWhileHeld, !shortcut.modifiers.contains(.shift) {
-                register(shortcut.keyCode, shortcut.modifiers.union(.shift), id: UInt32(index * 2 + 1), action: action, fine: true)
+            guard let keys = ShortcutSettings.text(for: action), let shortcut = Shortcut(keys) else { continue }
+            register(
+                shortcut.keyCode, shortcut.modifiers, keys: keys, id: UInt32(index * 2), action: action, fine: false)
+            if quarterSteps, action.repeatsWhileHeld, !shortcut.modifiers.contains(.shift) {
+                let modifiers = shortcut.modifiers.union(.shift)
+                register(
+                    shortcut.keyCode, modifiers, keys: "shift+\(keys)", id: UInt32(index * 2 + 1), action: action,
+                    fine: true)
             }
         }
-        return registrations.count
     }
 
     func unregisterAll() {
         stopRepeating()
         for registration in registrations.values { UnregisterEventHotKey(registration.reference) }
         registrations.removeAll()
+        statuses.removeAll()
     }
 
     func stopRepeating() {
@@ -84,7 +90,9 @@ final class Hotkeys: NSObject {
         handler(registration.action, registration.fine)
     }
 
-    private func register(_ keyCode: Int, _ modifiers: Shortcut.Modifiers, id: UInt32, action: Shortcut.Action, fine: Bool) {
+    private func register(
+        _ keyCode: Int, _ modifiers: Shortcut.Modifiers, keys: String, id: UInt32, action: Shortcut.Action, fine: Bool
+    ) {
         var carbonModifiers = 0
         if modifiers.contains(.command) { carbonModifiers |= cmdKey }
         if modifiers.contains(.shift) { carbonModifiers |= shiftKey }
@@ -96,8 +104,11 @@ final class Hotkeys: NSObject {
             UInt32(keyCode), UInt32(carbonModifiers), EventHotKeyID(signature: Self.signature, id: id),
             GetEventDispatcherTarget(), 0, &reference
         )
-        guard status == noErr, let reference else { return }
-        registrations[id] = Registration(reference: reference, action: action, fine: fine)
+        if status == noErr, let reference {
+            registrations[id] = Registration(reference: reference, action: action, fine: fine)
+        }
+        statuses.append(
+            AppStatus.ShortcutStatus(action: action.rawValue, keys: keys, registered: registrations[id] != nil))
     }
 
     private func installEventHandler() {

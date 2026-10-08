@@ -54,20 +54,47 @@ public struct DisplayState: Equatable, Sendable {
     /// Applies a command; nil when the display lacks the control.
     public mutating func apply(_ command: Command) -> Outcome? {
         switch command {
-        case let .step(.brightness, up, fine):
+        case .step(.brightness, let up, let fine):
             guard let value = brightness else { return nil }
             return setBrightness(Level.stepped(value, up: up, fine: fine))
-        case let .set(.brightness, percent):
+        case .set(.brightness, let percent):
             guard let value = brightness else { return nil }
             return setBrightness(Level.value(percent: percent, maximum: value.maximum))
-        case let .step(.volume, up, fine):
+        case .step(.volume, let up, let fine):
             guard let value = volume else { return nil }
             return setVolume(Level.stepped(value, up: up, fine: fine))
-        case let .set(.volume, percent):
+        case .set(.volume, let percent):
             guard let value = volume else { return nil }
             return setVolume(Level.value(percent: percent, maximum: value.maximum))
-        case let .mute(action):
+        case .mute(let action):
             return setMuted(action == .toggle ? !isMuted : action == .on)
+        }
+    }
+
+    /// Replaces a cached feature with what the display reports. Returns the cached value it
+    /// replaced when the two differed, nil when they agreed.
+    @discardableResult
+    public mutating func reconcile(_ feature: DDC.Feature, with reading: DDC.Value) -> Int? {
+        switch feature {
+        case .brightness:
+            let cached = brightness?.current
+            brightness = reading
+            return cached == reading.current ? nil : cached
+        case .volume:
+            // An emulated mute holds the display at 0 while the cache remembers the real level.
+            if isMuted, !hasHardwareMute {
+                if reading.current == 0 { return nil }
+                isMuted = false
+            }
+            let cached = volume?.current
+            volume = reading
+            return cached == reading.current ? nil : cached
+        case .mute:
+            let muted = reading.current == DDC.Mute.on
+            let wasMuted = isMuted
+            hasHardwareMute = true
+            isMuted = muted
+            return wasMuted == muted ? nil : (wasMuted ? DDC.Mute.on : DDC.Mute.off)
         }
     }
 
@@ -98,7 +125,8 @@ public struct DisplayState: Equatable, Sendable {
         let feedback = Feedback(kind: muted ? .muted : .volume, fraction: volume.fraction)
         guard muted != isMuted else { return Outcome(writes: [], feedback: feedback) }
         isMuted = muted
-        let write = hasHardwareMute
+        let write =
+            hasHardwareMute
             ? Write(.mute, muted ? DDC.Mute.on : DDC.Mute.off)
             : Write(.volume, muted ? 0 : volume.current)
         return Outcome(writes: [write], feedback: feedback)

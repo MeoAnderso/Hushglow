@@ -29,14 +29,16 @@ final class MediaKeyTap {
     @discardableResult
     func start() -> Bool {
         guard port == nil else { return true }
-        guard let port = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(1) << CGEventMask(systemDefinedEventType),
-            callback: mediaKeyTapCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else { return false }
+        guard
+            let port = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .defaultTap,
+                eventsOfInterest: CGEventMask(1) << CGEventMask(systemDefinedEventType),
+                callback: mediaKeyTapCallback,
+                userInfo: Unmanaged.passUnretained(self).toOpaque()
+            )
+        else { return false }
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: port, enable: true)
