@@ -1,8 +1,7 @@
 import AppKit
 
 /// A floating glass panel, used for Settings and the notices: the whole window is one sheet of
-/// Liquid Glass with the controls laid directly on it. On macOS before 26 a blurred material
-/// stands in.
+/// Liquid Glass with the controls laid directly on it.
 @MainActor
 enum GlassPanel {
     /// Room to leave at the top of a panel's content for the title bar, which sits over it.
@@ -26,22 +25,10 @@ enum GlassPanel {
 
     /// The sheet of glass, with the content inside it where AppKit expects content to be.
     static func backing(for content: NSView, cornerRadius: CGFloat = cornerRadius) -> NSView {
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView(frame: content.frame)
-            glass.cornerRadius = cornerRadius
-            glass.contentView = content
-            return glass
-        }
-        let material = NSVisualEffectView(frame: content.frame)
-        material.material = .popover
-        material.blendingMode = .behindWindow
-        material.state = .active
-        material.wantsLayer = true
-        material.layer?.cornerRadius = cornerRadius
-        material.layer?.masksToBounds = true
-        content.setFrameOrigin(.zero)
-        material.addSubview(content)
-        return material
+        let glass = NSGlassEffectView(frame: content.frame)
+        glass.cornerRadius = cornerRadius
+        glass.contentView = content
+        return glass
     }
 }
 

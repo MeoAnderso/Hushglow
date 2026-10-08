@@ -167,21 +167,14 @@ final class OSD: NSObject {
         } else {
             switch look.style {
             case .glass:
-                if #available(macOS 26.0, *) {
-                    // The marks go inside the glass, where AppKit expects content to be.
-                    let glass = NSGlassEffectView(frame: frame)
-                    glass.cornerRadius = frame.height / 2
-                    glass.contentView = indicator
-                    holder.addSubview(glass)
-                } else {
-                    holder.addSubview(blur(frame))
-                    holder.appearance = NSAppearance(named: .darkAqua)
-                }
+                // The marks go inside the glass, where AppKit expects content to be.
+                let glass = glassCapsule(frame)
+                glass.contentView = indicator
+                holder.addSubview(glass)
             case .seeThrough:
-                let material = material(frame)
-                material.alphaValue = seeThroughOpacity
-                holder.addSubview(material)
-                if #unavailable(macOS 26.0) { holder.appearance = NSAppearance(named: .darkAqua) }
+                let glass = glassCapsule(frame)
+                glass.alphaValue = seeThroughOpacity
+                holder.addSubview(glass)
             case .plain:
                 holder.addSubview(fill(frame, NSColor(white: 0, alpha: 0.38)))
                 holder.appearance = NSAppearance(named: .darkAqua)
@@ -202,23 +195,10 @@ final class OSD: NSObject {
         return holder
     }
 
-    /// Liquid Glass where macOS has it, a blurred dark material before that.
-    private static func material(_ frame: NSRect) -> NSView {
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView(frame: frame)
-            glass.cornerRadius = frame.height / 2
-            return glass
-        }
-        return blur(frame)
-    }
-
-    private static func blur(_ frame: NSRect) -> NSView {
-        let material = NSVisualEffectView(frame: frame)
-        material.material = .hudWindow
-        material.blendingMode = .behindWindow
-        material.state = .active
-        material.maskImage = capsuleMask(height: frame.height)
-        return material
+    private static func glassCapsule(_ frame: NSRect) -> NSGlassEffectView {
+        let glass = NSGlassEffectView(frame: frame)
+        glass.cornerRadius = frame.height / 2
+        return glass
     }
 
     private static func fill(_ frame: NSRect, _ color: NSColor) -> NSView {
@@ -227,18 +207,6 @@ final class OSD: NSObject {
         view.layer?.backgroundColor = color.cgColor
         view.layer?.cornerRadius = frame.height / 2
         return view
-    }
-
-    private static func capsuleMask(height: CGFloat) -> NSImage {
-        let radius = height / 2
-        let image = NSImage(size: NSSize(width: height + 1, height: height), flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-            return true
-        }
-        image.capInsets = NSEdgeInsets(top: 0, left: radius, bottom: 0, right: radius)
-        image.resizingMode = .stretch
-        return image
     }
 }
 

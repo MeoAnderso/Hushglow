@@ -107,7 +107,7 @@ final class MenuControls: NSObject {
         statusLine.isEnabled = false
         accessItem.target = self
         accessItem.action = #selector(enableKeyboardKeys)
-        if #available(macOS 14.4, *) { accessItem.subtitle = "Needs \(AccessibilityAccess.listName)" }
+        accessItem.subtitle = "Needs \(AccessibilityAccess.listName)"
     }
 
     /// The items in the order the menu shows them.

@@ -19,12 +19,11 @@ cp .build/release/DisplayKeys "$app/Contents/MacOS/DisplayKeys"
 strip -x "$app/Contents/MacOS/DisplayKeys"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 
-# The layered icon, which macOS 26 and later render with Liquid Glass, is compiled into an
-# asset catalog. The flat icon is copied afterwards and serves earlier versions of macOS.
+# The layered icon, which macOS renders with Liquid Glass, is compiled into an asset catalog.
+min_os=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" Resources/Info.plist)
 xcrun actool Resources/AppIcon.icon --compile "$app/Contents/Resources" --app-icon AppIcon \
-    --platform macosx --minimum-deployment-target 14.0 \
+    --platform macosx --minimum-deployment-target "$min_os" \
     --output-partial-info-plist build/icon-info.plist --errors --warnings >/dev/null
-cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 identity="${CODESIGN_IDENTITY:-}"
 if [ -z "$identity" ] && security find-identity -p codesigning 2>/dev/null | grep -q '"DisplayKeys Dev"'; then

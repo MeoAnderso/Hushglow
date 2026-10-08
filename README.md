@@ -26,7 +26,7 @@ modes lock brightness).
 
 A keyboard's own volume and brightness keys work too, if it has them and macOS receives
 them. That needs the app to be switched on in System Settings → Privacy & Security, in the
-list macOS 27 calls Device Control and Data Access and earlier versions call Accessibility.
+list macOS 27 calls Device Control and Data Access and macOS 26 calls Accessibility.
 The app walks you there; the shortcuts, the menu and the command line work without it.
 
 ### Settings
@@ -103,10 +103,11 @@ Scripts/install.sh       # builds, installs into /Applications and starts the ap
 Scripts/build-app.sh     # only builds build/DisplayKeys.app
 swift test               # unit tests
 swift format lint --strict --recursive Sources Tests Scripts Package.swift
-swift Scripts/make-icon.swift   # redraws both forms of the icon, only needed after changing the artwork
+swift Scripts/make-icon.swift   # redraws the icon's layers, only needed after changing the artwork
 ```
 
-Requires Xcode's Swift 6.2 toolchain or later. There are no third-party dependencies.
+The app runs on macOS 26 or later. Building it requires Xcode's Swift 6.2 toolchain or
+later. There are no third-party dependencies.
 
 Running the tests with `PREVIEW_DIR` set to a folder also writes pictures of the indicator,
 the menu, Settings, the notices and the helper there. That puts windows and a menu on screen
