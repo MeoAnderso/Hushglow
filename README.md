@@ -40,7 +40,8 @@ Choose Settings… in the menu.
 - **Shortcuts.** Click a field, or focus it and press Space, then press the keys. A shortcut
   is any of Ctrl, Alt, Shift and Cmd with an arrow, page, Home, End or function key; a
   function key can also stand alone. Delete removes a shortcut. The window says why when a
-  shortcut cannot be used, and shortcuts are paused while it is open. Keys that macOS has a
+  shortcut cannot be used. The app's shortcuts are paused only while a field is waiting for
+  keys, so that what you press is taken down and not acted on. Keys that macOS has a
   shortcut of its own on, such as Ctrl+Up for Mission Control, are turned down with a note
   saying so; to use them, switch macOS's shortcut off in System Settings → Keyboard →
   Keyboard Shortcuts. "Also register each with Shift, for quarter steps" is off by default
@@ -75,7 +76,9 @@ DisplayKeys mute                    # toggle; or: mute on, mute off
 DisplayKeys get brightness
 ```
 
-`DisplayKeys` here is `/Applications/DisplayKeys.app/Contents/MacOS/DisplayKeys`.
+`DisplayKeys` here is `/Applications/DisplayKeys.app/Contents/MacOS/DisplayKeys`, and
+`DisplayKeys help` lists every command. A command it does not know gets the same list and
+does not start the app.
 
 ### When something does not respond
 

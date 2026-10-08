@@ -25,9 +25,15 @@ final class ShortcutField: NSView {
     var onChange: ((Shortcut?) -> Void)?
     /// Called with a message to show beside the fields, or nil to clear it.
     var onMessage: ((String?) -> Void)?
+    /// Called when the field starts waiting for keys and when it stops. While it waits, the
+    /// app's own shortcuts have to be out of the way, or pressing one would act.
+    var onRecordingChange: ((Bool) -> Void)?
 
     private(set) var isRecording = false {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            if isRecording != oldValue { onRecordingChange?(isRecording) }
+        }
     }
 
     // MARK: Focus
@@ -62,6 +68,11 @@ final class ShortcutField: NSView {
         onMessage?(nil)
     }
 
+    /// Gives up waiting for keys and keeps the shortcut as it was.
+    func stopRecording() {
+        isRecording = false
+    }
+
     override func keyDown(with event: NSEvent) {
         if !handle(event) { super.keyDown(with: event) }
     }
@@ -77,11 +88,13 @@ final class ShortcutField: NSView {
         let modifiers = Self.modifiers(of: event)
         let isBare = modifiers.isEmpty
 
+        // The change is passed on before the recording ends, so that whoever puts the app's
+        // shortcuts back at that point already has the new one.
         if isBare, [Key.delete, Key.forwardDelete].contains(event.keyCode) {
-            isRecording = false
             shortcut = nil
             onMessage?(nil)
             onChange?(nil)
+            isRecording = false
             return true
         }
         guard isRecording else {
@@ -100,10 +113,10 @@ final class ShortcutField: NSView {
             return true
         }
         guard let recorded else { return true }
-        isRecording = false
         shortcut = recorded
         onMessage?(nil)
         onChange?(recorded)
+        isRecording = false
         return true
     }
 

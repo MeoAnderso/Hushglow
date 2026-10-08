@@ -153,11 +153,21 @@ private final class StubHost: SettingsHost {
     var keyboardAskingIsDisabled = false
     var refusesEverything = false
     var shortcutsUsedByMacOS: [Shortcut] = []
+    var pauses = 0
+    var resumes = 0
     func enableKeyboardKeys() {}
-    func pauseShortcuts() {}
-    func resumeShortcuts() {}
+    func pauseShortcuts() { pauses += 1 }
+    func resumeShortcuts() { resumes += 1 }
     func canRegister(_ shortcut: Shortcut) -> Bool { !refusesEverything }
     func previewIndicator() {}
+}
+
+@MainActor
+private func keyPress(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+    try #require(
+        NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+            characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode))
 }
 
 @MainActor
@@ -181,11 +191,7 @@ private final class StubHost: SettingsHost {
         field.onChange = { changes.append($0) }
 
         func press(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws {
-            let event = try #require(
-                NSEvent.keyEvent(
-                    with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
-                    characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode))
-            field.keyDown(with: event)
+            field.keyDown(with: try keyPress(keyCode, flags))
         }
 
         try press(49)  // Space starts recording
@@ -201,6 +207,77 @@ private final class StubHost: SettingsHost {
         #expect(changes.count == 2 && changes.last == .some(nil))
     }
 
+    /// A field tells of the change before it stops recording: the shortcuts are put back when
+    /// the recording ends, and the new one has to be stored by then.
+    @Test func aFieldPassesAChangeOnBeforeItStopsRecording() throws {
+        let field = ShortcutField(frame: NSRect(x: 0, y: 0, width: 200, height: 26))
+        var events: [String] = []
+        field.onChange = { events.append($0.map { "changed to \($0.text)" } ?? "removed") }
+        field.onRecordingChange = { events.append($0 ? "recording" : "stopped") }
+
+        field.keyDown(with: try keyPress(49))  // Space
+        field.keyDown(with: try keyPress(0x7E, [.control, .option]))
+        #expect(events == ["recording", "changed to ctrl+alt+up", "stopped"])
+
+        events = []
+        field.keyDown(with: try keyPress(49))
+        field.keyDown(with: try keyPress(51))  // Delete
+        #expect(events == ["recording", "removed", "stopped"])
+
+        events = []
+        field.keyDown(with: try keyPress(49))
+        field.keyDown(with: try keyPress(53))  // Esc
+        field.stopRecording()
+        #expect(events == ["recording", "stopped"])
+    }
+
+    /// The shortcuts stay registered while Settings is open. They are out of the way only
+    /// while a field waits for keys, and come back when it stops, however it stops.
+    @Test func shortcutsArePausedOnlyWhileAFieldRecords() throws {
+        let host = StubHost()
+        let settings = SettingsWindow(host: host)
+        let content = settings.makeContentView()
+        let field = try #require(content.subviews.compactMap { $0 as? ShortcutField }.first)
+        #expect(host.pauses == 0 && host.resumes == 0)
+
+        field.keyDown(with: try keyPress(49))  // Space starts recording
+        #expect(field.isRecording)
+        #expect(host.pauses == 1 && host.resumes == 0)
+        field.keyDown(with: try keyPress(0, [.control]))  // not a key a shortcut can use
+        #expect(field.isRecording && host.resumes == 0)
+        field.keyDown(with: try keyPress(53))  // Esc
+        #expect(!field.isRecording)
+        #expect(host.pauses == 1 && host.resumes == 1)
+
+        // A recording must not be left waiting in a window that has gone to the back.
+        field.keyDown(with: try keyPress(49))
+        settings.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        #expect(!field.isRecording)
+        #expect(host.pauses == 2 && host.resumes == 2)
+
+        field.keyDown(with: try keyPress(49))
+        settings.windowWillClose(Notification(name: NSWindow.willCloseNotification))
+        #expect(!field.isRecording)
+        #expect(host.pauses == 3 && host.resumes == 3)
+    }
+
+    @Test func restoringTheDefaultsAsksFirst() throws {
+        let host = StubHost()
+        let settings = SettingsWindow(host: host)
+        let content = settings.makeContentView()
+        var asked = 0
+        settings.confirmRestore = { answer in
+            asked += 1
+            answer(false)
+        }
+        let buttons = content.subviews.compactMap { $0 as? NSButton }
+        let button = try #require(buttons.first { $0.title == "Restore Defaults" })
+        button.performClick(nil)
+        #expect(asked == 1)
+        // Restoring registers the shortcuts afresh; with the answer no, nothing was restored.
+        #expect(host.resumes == 0)
+    }
+
     private func messages(in content: NSView) -> [String] {
         content.subviews.compactMap { ($0 as? NSTextField)?.stringValue }.filter { $0.hasPrefix("macOS uses") }
     }
@@ -214,11 +291,7 @@ private final class StubHost: SettingsHost {
         let field = try #require(content.subviews.compactMap { $0 as? ShortcutField }.first)
         let before = field.shortcut
         for (keyCode, flags) in [(UInt16(49), NSEvent.ModifierFlags()), (0x7E, [.control])] {
-            let event = try #require(
-                NSEvent.keyEvent(
-                    with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
-                    characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode))
-            field.keyDown(with: event)
+            field.keyDown(with: try keyPress(keyCode, flags))
         }
         #expect(messages(in: content).first?.hasPrefix("macOS uses ⌃↑ itself.") == true)
         #expect(field.shortcut == before)
@@ -233,6 +306,27 @@ private final class StubHost: SettingsHost {
         #expect(
             messages(in: SettingsWindow(host: host).makeContentView())
                 == ["macOS uses \(shortcut.symbols) for shortcuts of its own, so it may not work here."])
+    }
+}
+
+@MainActor
+@Suite struct CommandLineTests {
+    @Test func tellsACommandFromALaunch() {
+        // The app is started with no arguments, or with settings as macOS and Xcode pass them.
+        #expect(!CLI.handles([]))
+        #expect(!CLI.handles(["-AppleLanguages", "(en)"]))
+        #expect(!CLI.handles(["-NSDocumentRevisionsDebugMode", "YES"]))
+
+        #expect(CLI.handles(["status"]))
+        #expect(CLI.handles(["--help"]) && CLI.handles(["-h"]) && CLI.handles(["help"]))
+        // A mistyped command is still a command, and must not start a second copy of the app.
+        #expect(CLI.handles(["staus"]) && CLI.handles(["--version"]))
+    }
+
+    @Test func asksForHelpOrGetsItOnAMistake() {
+        for help in ["help", "--help", "-h"] { #expect(CLI.run([help]) == 0) }
+        #expect(CLI.run(["staus"]) == 64)
+        #expect(CLI.run(["--version"]) == 64)
     }
 }
 
@@ -656,6 +750,37 @@ private final class StubMenuHost: StatusMenuHost {
         #expect(button.accessibilityLabel() == "Unmute")
         button.performClick(nil)
         #expect(host.commands == [.mute(.on), .mute(.off)])
+    }
+
+    /// A refresh that arrives while the mouse is down, as when the menu is opened with the
+    /// button held, brings everything up to date except the slider under the mouse.
+    @Test func aRefreshLeavesOnlyTheSliderBeingDraggedAlone() throws {
+        let host = StubMenuHost(brightness: 50, volume: 30)
+        let controls = MenuControls(host: host)
+        controls.update()
+        let slider = controls.brightnessRow.slider
+        func mouse(_ type: NSEvent.EventType) throws -> NSEvent {
+            try #require(
+                NSEvent.mouseEvent(
+                    with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        let release = try mouse(.leftMouseUp)
+        var valueWhileDragged: Double?
+
+        slider.drag(from: try mouse(.leftMouseDown)) {
+            let draggedTo = slider.value
+            host.displayState = StubMenuHost(brightness: 80, volume: 60).displayState
+            controls.update()
+            valueWhileDragged = slider.value
+            #expect(slider.value == draggedTo)
+            return release
+        }
+        #expect(valueWhileDragged != 80)
+        #expect(label(of: controls.volumeRow) == "60%")
+
+        controls.update()
+        #expect(slider.value == 80 && label(of: controls.brightnessRow) == "80%")
     }
 
     /// As with macOS's own volume slider, a muted one can still be moved, and moving it unmutes.

@@ -53,11 +53,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controls.update()
     }
 
-    /// Called when the displays were re-read; a slider that is being dragged is left alone.
+    /// Called when the displays were re-read.
     func displaysChanged() {
         // The icon dims while there is nothing to control.
         item.button?.appearsDisabled = host.displayState == nil
-        if let controls, NSEvent.pressedMouseButtons == 0 { controls.update() }
+        controls?.update()
     }
 
     private func build(_ menu: NSMenu) -> MenuControls {
@@ -249,7 +249,10 @@ final class SliderRow: NSView {
         fatalError("SliderRow is created in code")
     }
 
+    /// Shows a value that comes from the display. A slider that is being dragged is left
+    /// alone: it is ahead of the display, and must not move under the mouse.
     func show(percent: Double) {
+        guard !slider.isDragging else { return }
         slider.show(percent)
         showValue(percent)
     }

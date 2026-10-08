@@ -1,7 +1,7 @@
 import AppKit
 
 let arguments = Array(CommandLine.arguments.dropFirst())
-if let verb = arguments.first, CLI.verbs.contains(verb) {
+if CLI.handles(arguments) {
     exit(CLI.run(arguments))
 }
 

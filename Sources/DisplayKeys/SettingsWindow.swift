@@ -8,9 +8,10 @@ protocol SettingsHost: AnyObject {
     var keyboardKeysAreActive: Bool { get }
     var keyboardAskingIsDisabled: Bool { get set }
     func enableKeyboardKeys()
-    /// Releases the shortcuts while they are being edited: one that is still registered would
+    /// Releases the shortcuts while one is being recorded: one that is still registered would
     /// act instead of being recorded.
     func pauseShortcuts()
+    /// Registers the shortcuts as the settings now have them.
     func resumeShortcuts()
     /// Whether macOS accepts the shortcut.
     func canRegister(_ shortcut: Shortcut) -> Bool
@@ -43,6 +44,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private var stylePopup: NSPopUpButton?
     private var positionPopup: NSPopUpButton?
     private var percentageBox: NSButton?
+    /// Asks whether the defaults should really be restored and passes the answer on. Tests
+    /// answer in its place.
+    lazy var confirmRestore: (@escaping @MainActor (Bool) -> Void) -> Void = { [unowned self] in askInASheet($0) }
 
     init(host: any SettingsHost) {
         self.host = host
@@ -51,13 +55,22 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     func show() {
         let window = window ?? makeWindow()
         reload()
-        host.pauseShortcuts()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
     func windowWillClose(_ notification: Notification) {
-        host.resumeShortcuts()
+        stopRecording()
+    }
+
+    /// A recording left waiting in a window that is no longer in front would keep the
+    /// shortcuts switched off for as long as the window stays open.
+    func windowDidResignKey(_ notification: Notification) {
+        stopRecording()
+    }
+
+    private func stopRecording() {
+        for field in fields.values { field.stopRecording() }
     }
 
     /// Access may have been granted in System Settings while this window was in the background.
@@ -139,6 +152,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             field.onChange = { [unowned self] shortcut in
                 ShortcutSettings.set(shortcut?.text ?? "", for: action)
                 reload()
+                applyShortcuts()
+            }
+            field.onRecordingChange = { [unowned self] isRecording in
+                if isRecording { host.pauseShortcuts() } else { host.resumeShortcuts() }
             }
             content.addSubview(field)
             fields[action] = field
@@ -173,7 +190,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         loginBox = checkbox("Launch at login", #selector(loginChanged))
         close()
 
-        let restore = NSButton(title: "Restore Defaults", target: self, action: #selector(restoreDefaults))
+        let restore = NSButton(title: "Restore Defaults", target: self, action: #selector(askToRestoreDefaults))
         restore.frame = NSRect(x: Self.width - Self.margin - 150, y: y - 6, width: 156, height: 30)
         content.addSubview(restore)
         y += 40
@@ -280,15 +297,23 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Has the app register the shortcuts as they now are. While a field is recording they
+    /// stay out of the way; the end of the recording registers them.
+    private func applyShortcuts() {
+        if !fields.values.contains(where: \.isRecording) { host.resumeShortcuts() }
+    }
+
     @objc private func clearShortcut(_ sender: NSButton) {
         ShortcutSettings.set("", for: Shortcut.Action.allCases[sender.tag])
         show(message: nil)
         reload()
+        applyShortcuts()
     }
 
     @objc private func quarterStepsChanged(_ sender: NSButton) {
         ShortcutSettings.quarterSteps = sender.state == .on
         show(message: nil)
+        applyShortcuts()
     }
 
     // MARK: Other settings
@@ -329,7 +354,26 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         reload()
     }
 
-    @objc private func restoreDefaults() {
+    /// Shortcuts someone has chosen are not thrown away on one click.
+    @objc private func askToRestoreDefaults() {
+        confirmRestore { [weak self] confirmed in
+            if confirmed { self?.restoreDefaults() }
+        }
+    }
+
+    private func askInASheet(_ answer: @escaping @MainActor (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Restore the default settings?"
+        alert.informativeText =
+            "The shortcuts and the indicator go back to how they were at first. The keyboard’s own keys and "
+            + "launch at login stay as they are."
+        alert.addButton(withTitle: "Restore Defaults")
+        alert.addButton(withTitle: "Cancel")
+        guard let window else { return answer(alert.runModal() == .alertFirstButtonReturn) }
+        alert.beginSheetModal(for: window) { answer($0 == .alertFirstButtonReturn) }
+    }
+
+    private func restoreDefaults() {
         for action in Shortcut.Action.allCases { ShortcutSettings.set(nil, for: action) }
         ShortcutSettings.quarterSteps = false
         IndicatorSettings.style = .glass
@@ -337,6 +381,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         IndicatorSettings.showsPercentage = false
         show(message: nil)
         reload()
+        applyShortcuts()
     }
 }
 

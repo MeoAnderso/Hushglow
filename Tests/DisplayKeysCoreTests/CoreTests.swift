@@ -42,6 +42,28 @@ import Testing
     }
 }
 
+@Suite struct PaceTests {
+    @Test func oneLateReplyDoesNotSlowADisplayDown() {
+        var pace = DDC.Pace()
+        pace.readFinished(missedAReply: true)
+        pace.readFinished(missedAReply: true)
+        #expect(!pace.needsLongWaits)
+        // A read that went well clears the count.
+        pace.readFinished(missedAReply: false)
+        pace.readFinished(missedAReply: true)
+        pace.readFinished(missedAReply: true)
+        #expect(!pace.needsLongWaits)
+    }
+
+    @Test func aDisplayThatKeepsMissingGetsTheLongWaitsForGood() {
+        var pace = DDC.Pace()
+        for _ in 0..<DDC.Pace.missesBeforeLongWaits { pace.readFinished(missedAReply: true) }
+        #expect(pace.needsLongWaits)
+        pace.readFinished(missedAReply: false)
+        #expect(pace.needsLongWaits)
+    }
+}
+
 @Suite struct LevelTests {
     @Test func walksTheWholeRangeInSixteenSteps() {
         var value = DDC.Value(current: 0, maximum: 100)

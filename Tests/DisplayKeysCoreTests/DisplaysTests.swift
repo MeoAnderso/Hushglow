@@ -14,13 +14,23 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     /// What the display does with a written value; nil means it ignores writes.
     private var onWrite: ((Int) -> Int)? = { $0 }
     private var dropsRemaining = 0
+    private var unanswered: Set<DDC.Feature> = []
+    /// Further external displays that never answer, as one without DDC does.
+    private var silent: [Handle] = []
+    private var discoveryCount = 0
 
-    func displays() -> [Handle] { [handle] }
+    func displays() -> [Handle] {
+        lock.withLock {
+            discoveryCount += 1
+            return [handle] + silent
+        }
+    }
 
     func get(_ display: Handle, _ feature: DDC.Feature) -> DDC.Value? {
         lock.withLock {
+            guard display === handle else { return nil }
             events.append("get \(feature)")
-            return values[feature].map { DDC.Value(current: $0, maximum: 100) }
+            return unanswered.contains(feature) ? nil : values[feature].map { DDC.Value(current: $0, maximum: 100) }
         }
     }
 
@@ -42,6 +52,20 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
 
     func ignoreWrites() {
         lock.withLock { onWrite = nil }
+    }
+
+    /// Makes the display stop answering reads of a feature, or answer them again.
+    func answer(_ feature: DDC.Feature, _ answers: Bool) {
+        lock.withLock { _ = answers ? unanswered.remove(feature) : unanswered.insert(feature).memberAfterInsert }
+    }
+
+    func addDisplayWithoutDDC() {
+        lock.withLock { silent.append(Handle()) }
+    }
+
+    /// How often the displays have been looked for.
+    var discoveries: Int {
+        lock.withLock { discoveryCount }
     }
 
     /// Makes the display lose the next write and take the ones after it.
@@ -100,6 +124,13 @@ private final class Recorder {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 queue.async { DispatchQueue.main.async { continuation.resume() } }
             }
+        }
+    }
+
+    /// Waits for something that takes a few turns between the queues, such as a retry.
+    private func settle(until condition: () -> Bool) async {
+        for _ in 0..<200 where !condition() {
+            try? await Task.sleep(for: .milliseconds(5))
         }
     }
 
@@ -207,6 +238,48 @@ private final class Recorder {
         await settle()
         #expect(displays.primary?.brightness?.current == 55)
         #expect(recorder.mismatches == [.init(feature: .brightness, cached: 56, actual: 55, kind: .writeAdjusted)])
+    }
+
+    @Test func aReadWithoutAnAnswerDoesNotMakeTheCacheFresh() async {
+        press(brightnessUp)
+        recorder.now += 3
+        transport.answer(.brightness, false)
+        await settle()  // the read-back, three seconds after the write, gets no answer
+        transport.answer(.brightness, true)
+        _ = transport.takeEvents()
+
+        // Six seconds after the display was last heard from, it is read before it is written.
+        recorder.now += 3
+        press(brightnessUp)
+        await settle()
+        #expect(Array(transport.takeEvents().prefix(2)) == ["get brightness", "set brightness=63"])
+    }
+
+    @Test func aDisplayWithoutDDCIsWaitedForOnlyOnce() async {
+        let transport = FakeTransport()
+        transport.addDisplayWithoutDDC()
+        var timing = Displays<FakeTransport>.Timing()
+        timing.retryDelays = [0.01, 0.01, 0.01]
+        let displays = Displays(transport: transport, queue: queue, timing: timing, onWriteFailure: {})
+
+        // It may only be waking up, so the displays are looked for three more times.
+        displays.refresh()
+        await settle { transport.discoveries == 4 }
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(transport.discoveries == 4)
+        #expect(displays.primary?.brightness?.current == 50)
+
+        // Having stayed silent throughout, it is not waited for again.
+        displays.refresh()
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(transport.discoveries == 5)
+
+        // Another display that does not answer is a new silence, and is waited for.
+        transport.addDisplayWithoutDDC()
+        displays.refresh()
+        await settle { transport.discoveries == 9 }
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(transport.discoveries == 9)
     }
 
     @Test func suspendDropsCommandsThatAreStillWaiting() async {

@@ -45,6 +45,28 @@ public enum DDC {
         case unsupported
     }
 
+    /// Decides whether a display gets the short pauses around a request or the long ones.
+    ///
+    /// Every read starts with the short ones and falls back to the long ones when a reply does
+    /// not come in time. One such miss says little, since displays answer late now and then.
+    /// A display that misses on several reads in a row is taken to need the long pauses from
+    /// the start, for as long as it stays connected.
+    public struct Pace: Equatable, Sendable {
+        public static let missesBeforeLongWaits = 3
+
+        public private(set) var needsLongWaits = false
+        private var missesInARow = 0
+
+        public init() {}
+
+        /// Takes note of how a read that began with the short pauses went.
+        public mutating func readFinished(missedAReply: Bool) {
+            guard !needsLongWaits else { return }
+            missesInARow = missedAReply ? missesInARow + 1 : 0
+            needsLongWaits = missesInARow >= Self.missesBeforeLongWaits
+        }
+    }
+
     private static let requestSeed: UInt8 = 0x6E ^ 0x51
     private static let replySeed: UInt8 = 0x50
     private static let getReplyLengthByte: UInt8 = 0x88

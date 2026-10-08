@@ -6,10 +6,6 @@ import ServiceManagement
 /// state and on-screen indicator stay in sync; otherwise they are sent to the display directly.
 @MainActor
 enum CLI {
-    static let verbs: Set<String> = [
-        "doctor", "status", "watch-keys", "get", "set", "step", "mute", "shortcut", "help",
-    ]
-
     private static let quarterStepsWord = "quarter-steps"
     private static let noTransport = "This macOS no longer provides the display control functions."
     private static let notRunning = "\(AppInfo.name) is not running."
@@ -28,7 +24,17 @@ enum CLI {
           DisplayKeys status                            what the running app sees and has received
           DisplayKeys watch-keys [seconds]              show which special keys reach the app
           DisplayKeys doctor [--write-test] [--key-test]   check the display connection and the key path
+          DisplayKeys help                              show this
         """
+
+    /// Whether the arguments are meant for the command line and not for the app. No arguments
+    /// start the app, and so do settings handed over as `-Name value`, which is how macOS and
+    /// Xcode pass them. Anything else is a command, a mistyped one included: it gets the usage
+    /// text, not a second copy of the app.
+    static func handles(_ arguments: [String]) -> Bool {
+        guard let first = arguments.first else { return false }
+        return !first.hasPrefix("-") || first.hasPrefix("--") || first == "-h"
+    }
 
     static func run(_ arguments: [String]) -> Int32 {
         switch arguments.first {
@@ -38,7 +44,7 @@ enum CLI {
         case "get": get(arguments)
         case "set", "step", "mute": send(arguments)
         case "shortcut": shortcut(Array(arguments.dropFirst()))
-        case "help": succeed(usage)
+        case "help", "--help", "-h": succeed(usage)
         default: fail(usage, status: 64)
         }
     }

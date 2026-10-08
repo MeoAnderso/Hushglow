@@ -5,9 +5,9 @@ import IOKit
 /// A retained IOAVService reference for one external display.
 final class AVService: @unchecked Sendable {
     fileprivate let reference: UnsafeMutableRawPointer
-    /// Set once the display misses a request sent with the short waits; from then on it gets the
-    /// long ones. Only touched on the queue that talks to the display.
-    fileprivate var needsLongWaits = false
+    /// Whether the display has shown that it needs the long waits. Only touched on the queue
+    /// that talks to the display.
+    fileprivate var pace = DDC.Pace()
 
     fileprivate init(reference: UnsafeMutableRawPointer) {
         self.reference = reference
@@ -91,9 +91,11 @@ struct IOAV: DisplayTransport {
     }
 
     func get(_ service: AVService, _ feature: DDC.Feature) -> DDC.Value? {
+        var waits = waits(for: service)
+        var missedAReply = false
+        defer { service.pace.readFinished(missedAReply: missedAReply) }
         for attempt in 0..<Self.readAttempts {
             if attempt > 0 { usleep(Self.retryWait) }
-            let waits = waits(for: service)
             guard send(service, DDC.getRequest(feature), waits, cycles: Self.requestCycles) else { continue }
             usleep(waits.beforeRead)
             var reply = [UInt8](repeating: 0, count: DDC.getReplyLength)
@@ -106,8 +108,9 @@ struct IOAV: DisplayTransport {
             } catch .unsupported {
                 return nil
             } catch {
-                // The display was not ready in time; give it the long waits from now on.
-                service.needsLongWaits = true
+                // The display was not ready in time; the rest of this read gets the long waits.
+                missedAReply = true
+                waits = .long
                 continue
             }
         }
@@ -120,7 +123,7 @@ struct IOAV: DisplayTransport {
     }
 
     private func waits(for service: AVService) -> Waits {
-        service.needsLongWaits ? .long : .short
+        service.pace.needsLongWaits ? .long : .short
     }
 
     private func send(_ service: AVService, _ packet: [UInt8], _ waits: Waits, cycles: Int) -> Bool {

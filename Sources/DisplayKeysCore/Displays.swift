@@ -102,6 +102,9 @@ public final class Displays<Transport: DisplayTransport> {
     private var burstOrigin: [Int: [DDC.Feature: Int]] = [:]
     private var verifyDeadline = DispatchTime.now()
     private var verifyIsScheduled = false
+    /// How many displays stayed silent through a whole round of retries. They are taken to
+    /// have no DDC, and are not waited for again.
+    private var knownSilent = 0
 
     public init(
         transport: Transport, queue: DispatchQueue, timing: Timing = Timing(), now: @escaping () -> Date = Date.init,
@@ -257,7 +260,14 @@ public final class Displays<Transport: DisplayTransport> {
         onChange?()
         drainWaiting(read: Command.Control.allCases.flatMap(\.features))
 
-        guard entries.count < found.count, attempt < timing.retryDelays.count else { return }
+        // A display that does not answer may still be waking, so discovery is tried again;
+        // but only for a silence that is new. One that lasted through every retry is a
+        // display without DDC, and would otherwise set off the retries on every refresh.
+        let silent = found.count - entries.count
+        guard silent > knownSilent, attempt < timing.retryDelays.count else {
+            knownSilent = silent
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + timing.retryDelays[attempt]) {
             MainActor.assumeIsolated {
                 guard generation == self.generation else { return }
@@ -294,7 +304,16 @@ public final class Displays<Transport: DisplayTransport> {
     ) {
         isSyncing = false
         let time = now()
-        for feature in features { syncedAt[feature] = time }
+        for (position, feature) in features.enumerated() {
+            // Only an answer makes a value fresh. A display that has the feature and did not
+            // answer leaves it stale, so that it is read again before it is next relied on.
+            let wasAnswered =
+                topology == self.topology
+                && zip(entries, readings).allSatisfy { entry, values in
+                    values[position] != nil || entry.state.value(of: feature) == nil
+                }
+            if wasAnswered { syncedAt[feature] = time }
+        }
 
         var changed = false
         for control in controls {

@@ -32,9 +32,11 @@ final class KeyWatch {
         let mask =
             CGEventMask(1) << CGEventMask(CGEventType.keyDown.rawValue) | CGEventMask(1)
             << CGEventMask(systemDefinedEventType)
+        // The watch only looks, so the tap only listens. A tap that could also change events
+        // would make every key press in every app wait for this one's main thread.
         guard
             let port = CGEvent.tapCreate(
-                tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap, eventsOfInterest: mask,
+                tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly, eventsOfInterest: mask,
                 callback: keyWatchCallback, userInfo: Unmanaged.passUnretained(self).toOpaque())
         else { return false }
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
