@@ -101,7 +101,11 @@ swift format lint --strict --recursive Sources Tests Scripts Package.swift
 swift Scripts/make-icon.swift   # redraws both forms of the icon, only needed after changing the artwork
 ```
 
-Requires Xcode's Swift 6 toolchain. There are no third-party dependencies.
+Requires Xcode's Swift 6.2 toolchain or later. There are no third-party dependencies.
+
+Running the tests with `PREVIEW_DIR` set to a folder also writes pictures of the indicator,
+the menu, Settings, the notices and the helper there. That puts windows and a menu on screen
+for a few seconds.
 
 ### Turning on the keyboard's keys, and again after a rebuild
 

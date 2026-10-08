@@ -411,11 +411,266 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
     @Test func aRowShowsItsValueAndIsLabelled() throws {
         let row = SliderRow(name: "Volume", symbol: "speaker.wave.2.fill", hasButton: true)
         row.show(percent: 56.4)
-        #expect(row.slider.doubleValue == 56.4)
-        #expect(row.slider.accessibilityLabel() == "Volume")
+        #expect(row.slider.value == 56.4)
         #expect(row.button != nil)
         #expect(row.subviews.compactMap { $0 as? NSTextField }.first?.stringValue == "56%")
         try writePreviews(of: row, named: "menu-row")
+        row.slider.isDimmed = true
+        try writePreviews(of: row, named: "menu-row-muted")
+        row.slider.isDimmed = false
+        row.slider.isHighContrast = true
+        try writePreviews(of: row, named: "menu-row-contrast")
+    }
+
+    /// The menu is as wide as its widest item, which the line of shortcuts can make wider
+    /// than a row asks for.
+    @Test func aRowStretchesToTheMenusWidth() {
+        let row = SliderRow(name: "Brightness", symbol: "sun.max.fill", hasButton: false)
+        let label = row.subviews.compactMap { $0 as? NSTextField }[0]
+        let margin = row.bounds.maxX - label.frame.maxX
+        let gap = label.frame.minX - row.slider.frame.maxX
+        #expect(row.autoresizingMask.contains(.width))
+
+        row.setFrameSize(NSSize(width: 338, height: row.frame.height))
+        #expect(abs(row.bounds.maxX - label.frame.maxX - margin) < 0.01)
+        #expect(abs(label.frame.minX - row.slider.frame.maxX - gap) < 0.01)
+        #expect(abs(row.slider.frame.width - (180 + 338 - 284)) < 0.01)
+    }
+}
+
+@MainActor
+@Suite struct LevelSliderTests {
+    private let slider = LevelSlider(frame: NSRect(x: 0, y: 0, width: 220, height: 22))
+    /// A window that is never put on screen, so that the mouse has coordinates to be in.
+    private let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 220, height: 22), styleMask: [.borderless], backing: .buffered,
+        defer: true)
+
+    init() {
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(slider)
+    }
+
+    private func mouse(_ type: NSEvent.EventType, at x: CGFloat) throws -> NSEvent {
+        try #require(
+            NSEvent.mouseEvent(
+                with: type, location: NSPoint(x: x, y: 11), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+    }
+
+    private func key(_ keyCode: UInt16, _ character: Int) throws -> NSEvent {
+        let characters = String(UnicodeScalar(UInt16(character)).map(Character.init) ?? " ")
+        return try #require(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
+    }
+
+    /// Plays a press at the first place, drags through the others and lets go.
+    private func drag(_ places: [CGFloat]) throws -> [Double] {
+        var values: [Double] = []
+        var wasDraggingThroughout = true
+        slider.onChange = { values.append($0) }
+        var rest = try places.dropFirst().map { try mouse(.leftMouseDragged, at: $0) }
+        rest.append(try mouse(.leftMouseUp, at: places.last ?? 0))
+        slider.drag(from: try mouse(.leftMouseDown, at: places[0])) {
+            wasDraggingThroughout = wasDraggingThroughout && slider.isDragging
+            return rest.isEmpty ? nil : rest.removeFirst()
+        }
+        #expect(wasDraggingThroughout && !slider.isDragging)
+        return values
+    }
+
+    /// The knob is 20 points wide and stays inside, so its centre travels from 10 to 210.
+    @Test func aDragMovesTheLevelWithTheMouse() throws {
+        #expect(try drag([10, 110, 160, 500, -40]) == [50, 75, 100, 0])
+        #expect(slider.value == 0)
+    }
+
+    @Test func aPressOnTheTrackBringsTheKnobThere() throws {
+        #expect(try drag([60]) == [25])
+    }
+
+    @Test func aPressOnTheKnobTakesItWhereItIs() throws {
+        slider.show(50)
+        // Taken 6 points right of its centre, the knob does not jump; it then moves as far as the mouse.
+        #expect(try drag([116, 136]) == [60])
+    }
+
+    @Test func aMouseThatDoesNotMoveTheKnobChangesNothing() throws {
+        slider.show(100)
+        #expect(try drag([210, 300, 400, 210]).isEmpty)
+    }
+
+    @Test func theArrowKeysStepAsTheShortcutsDo() throws {
+        var values: [Double] = []
+        slider.onChange = { values.append($0) }
+        slider.show(50)
+        slider.keyDown(with: try key(0x7C, NSRightArrowFunctionKey))
+        slider.keyDown(with: try key(0x7C, NSRightArrowFunctionKey))
+        slider.keyDown(with: try key(0x7B, NSLeftArrowFunctionKey))
+        #expect(values == [56, 63, 56])
+        // A value between two steps goes to the nearest one in the direction asked for.
+        slider.show(58)
+        slider.keyDown(with: try key(0x7B, NSLeftArrowFunctionKey))
+        #expect(slider.value == 56)
+    }
+
+    @Test func voiceOverCanReadAndChangeIt() {
+        var values: [Double] = []
+        slider.name = "Brightness"
+        slider.onChange = { values.append($0) }
+        slider.show(56.4)
+        #expect(slider.isAccessibilityElement() && slider.accessibilityRole() == .slider)
+        #expect(slider.accessibilityLabel() == "Brightness")
+        #expect(slider.accessibilityValue() as? Double == 56.4)
+        #expect(slider.accessibilityValueDescription() == "56 percent")
+        #expect(slider.accessibilityMinValue() as? Double == 0 && slider.accessibilityMaxValue() as? Double == 100)
+
+        #expect(slider.accessibilityPerformIncrement())
+        #expect(slider.accessibilityPerformDecrement())
+        slider.setAccessibilityValue(NSNumber(value: 140))
+        #expect(values == [63, 56, 100])
+    }
+
+    @Test func aValueFromTheDisplayIsShownWithoutBeingSentBack() {
+        var changes = 0
+        slider.onChange = { _ in changes += 1 }
+        slider.show(140)
+        #expect(slider.value == 100)
+        #expect(changes == 0)
+    }
+
+    /// A menu gives the focus to the first view that takes it, so the slider takes it only
+    /// when the system's own controls would.
+    @Test func takesTheFocusOnlyWithFullKeyboardAccess() {
+        #expect(slider.acceptsFirstResponder == NSApp.isFullKeyboardAccessEnabled)
+    }
+
+    /// The reason the slider exists: what handling an event leaves in the autorelease pool goes
+    /// before the next event, where NSSlider's tracking loop kept it all until the mouse was let
+    /// go. Each event here leaves an object behind, and none may outlive its event.
+    @Test func whatAnEventLeavesBehindGoesWithIt() throws {
+        final class Leftover {}
+        weak var last: Leftover?
+        var outlived = 0
+        var remaining = 500
+        slider.drag(from: try mouse(.leftMouseDown, at: 10)) {
+            if last != nil { outlived += 1 }
+            let leftover = Leftover()
+            last = leftover
+            _ = Unmanaged.passRetained(leftover).autorelease()
+            remaining -= 1
+            return try? mouse(remaining > 0 ? .leftMouseDragged : .leftMouseUp, at: CGFloat(remaining % 200) + 10)
+        }
+        #expect(remaining == 0)
+        #expect(outlived == 0)
+    }
+}
+
+/// The bytes in use on the heap, over all malloc zones.
+private func heapInUse() -> Int {
+    var statistics = malloc_statistics_t()
+    malloc_zone_statistics(nil, &statistics)
+    return statistics.size_in_use
+}
+
+@MainActor
+private final class StubMenuHost: StatusMenuHost {
+    var displayState: DisplayState?
+    var displayControlIsAvailable = true
+    var keyboardKeysAreActive = false
+    var commands: [Command] = []
+    var indicatorRequests = 0
+
+    init(brightness: Int? = 50, volume: Int? = 30, muted: Bool = false) {
+        func value(_ current: Int?) -> DDC.Value? { current.map { DDC.Value(current: $0, maximum: 100) } }
+        displayState = DisplayState(
+            brightness: value(brightness), volume: value(volume),
+            mute: DDC.Value(current: muted ? DDC.Mute.on : DDC.Mute.off, maximum: 2))
+    }
+
+    func run(_ command: Command, showOSD: Bool) {
+        commands.append(command)
+        if showOSD { indicatorRequests += 1 }
+        if lastLeftover != nil { leftoversThatOutlivedTheirEvent += 1 }
+        let leftover = Leftover()
+        lastLeftover = leftover
+        _ = Unmanaged.passRetained(leftover).autorelease()
+    }
+    func refreshDisplays() {}
+    func refreshKeyboardAccess() {}
+    func enableKeyboardKeys() {}
+    func showSettings() {}
+
+    /// Each command leaves an object in the autorelease pool, as real handling does. How many
+    /// were still there at the next command says whether the pool is emptied between events.
+    private final class Leftover {}
+    private weak var lastLeftover: Leftover?
+    private(set) var leftoversThatOutlivedTheirEvent = 0
+}
+
+@MainActor
+@Suite struct MenuControlsTests {
+    private func label(of row: SliderRow) -> String? {
+        row.subviews.compactMap { $0 as? NSTextField }.first?.stringValue
+    }
+
+    @Test func showsWhatTheDisplayHas() {
+        let host = StubMenuHost(brightness: 50, volume: nil)
+        let controls = MenuControls(host: host)
+        controls.update()
+        #expect(label(of: controls.brightnessRow) == "50%")
+        #expect(controls.brightnessRow.slider.value == 50)
+        // A control the display lacks has no row.
+        let hidden = controls.items.filter(\.isHidden).compactMap(\.view)
+        #expect(hidden == [controls.volumeRow])
+
+        host.displayState = nil
+        controls.update()
+        #expect(controls.statusLine.title == "No controllable display found")
+        host.displayControlIsAvailable = false
+        controls.update()
+        #expect(controls.statusLine.title == "Display control is unavailable on this macOS")
+    }
+
+    @Test func aSliderSetsItsControlWithoutTheIndicator() {
+        let host = StubMenuHost()
+        let controls = MenuControls(host: host)
+        controls.update()
+        #expect(controls.brightnessRow.slider.accessibilityPerformIncrement())
+        controls.volumeRow.slider.setAccessibilityValue(NSNumber(value: 41.6))
+        #expect(host.commands == [.set(.brightness, percent: 56), .set(.volume, percent: 42)])
+        #expect(host.indicatorRequests == 0)
+        #expect(label(of: controls.brightnessRow) == "56%" && label(of: controls.volumeRow) == "42%")
+    }
+
+    @Test func theMuteButtonTogglesAndSaysWhatItWillDo() throws {
+        let host = StubMenuHost()
+        let controls = MenuControls(host: host)
+        controls.update()
+        let button = try #require(controls.volumeRow.button)
+        #expect(button.accessibilityLabel() == "Mute")
+        button.performClick(nil)
+        #expect(host.commands == [.mute(.on)])
+        #expect(button.accessibilityLabel() == "Unmute")
+        button.performClick(nil)
+        #expect(host.commands == [.mute(.on), .mute(.off)])
+    }
+
+    /// As with macOS's own volume slider, a muted one can still be moved, and moving it unmutes.
+    @Test func movingTheVolumeSliderWhileMutedUnmutes() {
+        let host = StubMenuHost(muted: true)
+        let controls = MenuControls(host: host)
+        controls.update()
+        #expect(controls.showsMuted && controls.volumeRow.slider.isDimmed)
+        #expect(controls.volumeRow.button?.accessibilityLabel() == "Unmute")
+
+        #expect(controls.volumeRow.slider.accessibilityPerformIncrement())
+        // Setting the volume is what unmutes the display; no separate command is needed.
+        #expect(host.commands == [.set(.volume, percent: 31)])
+        #expect(!controls.showsMuted && !controls.volumeRow.slider.isDimmed)
+        #expect(controls.volumeRow.button?.accessibilityLabel() == "Mute")
     }
 }
 
@@ -558,13 +813,14 @@ private final class BackdropView: NSView {
 
 /// Photographs this process's own windows, composited by the window server, front to back.
 @MainActor
-private func photograph(_ windows: [NSWindow], size: NSSize) throws -> NSImage {
+private func photograph(_ windows: [NSWindow], size: NSSize, withShadows: Bool = true) throws -> NSImage {
     typealias Capture = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
     let symbol = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray"))
     let capture = unsafeBitCast(symbol, to: Capture.self)
     var ids = windows.map { UnsafeRawPointer(bitPattern: UInt($0.windowNumber)) }
     let array = try #require(CFArrayCreate(nil, &ids, ids.count, nil))
-    let image = try #require(capture(.null, array, 0)?.takeRetainedValue())
+    let boundsIgnoreFraming: UInt32 = 1 << 0
+    let image = try #require(capture(.null, array, withShadows ? 0 : boundsIgnoreFraming)?.takeRetainedValue())
     return NSImage(cgImage: image, size: size)
 }
 
@@ -753,5 +1009,143 @@ extension GlassWindowTests {
             backdropWindow.close()
         }
         application.appearance = nil
+    }
+}
+
+// MARK: The menu as it appears on screen
+
+/// Opens the menu's rows in a real menu and plays a drag into the brightness slider.
+///
+/// A drag of an NSSlider cannot be played: it looks at the real mouse button. The app's own
+/// slider takes the events it is handed, so mouse events put into this process's own queue
+/// go through the menu's tracking loop and the slider's, as a real drag does. They are fed a
+/// few at a time, so that events waiting in the queue are not counted as memory in use.
+@MainActor
+private final class MenuSession: NSObject {
+    let host = StubMenuHost()
+    private(set) lazy var controls = MenuControls(host: host)
+    private(set) var picture: NSImage?
+    private(set) var menuWidth: CGFloat?
+    private(set) var rowWidth: CGFloat?
+    /// The most the heap grew by while the drag went on, in bytes.
+    private(set) var growth = 0
+    private(set) var dragEnded = false
+
+    private let menu = NSMenu()
+    private let backdrop: NSWindow
+    private let events: Int
+    private var ticks = 0
+    private var posted = 0
+    private var heapBefore = 0
+    private var endedAt: Int?
+    private var origin = NSPoint.zero
+
+    init(appearance: NSAppearance.Name, events: Int) {
+        self.events = events
+        let frame = NSRect(x: 80, y: 260, width: 620, height: 300)
+        backdrop = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        backdrop.isReleasedWhenClosed = false
+        backdrop.contentView = BackdropView(frame: NSRect(origin: .zero, size: frame.size))
+        super.init()
+        menu.autoenablesItems = false
+        menu.appearance = NSAppearance(named: appearance)
+        menu.items =
+            controls.items + [
+                .separator(), NSMenuItem(title: "Settings…", action: nil, keyEquivalent: ","),
+                NSMenuItem(title: "Quit \(AppInfo.name)", action: nil, keyEquivalent: "q"),
+            ]
+        controls.update()
+    }
+
+    /// Returns when the menu has closed again.
+    func run() {
+        backdrop.orderFrontRegardless()
+        let timer = Timer(timeInterval: 0.01, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+        RunLoop.main.add(timer, forMode: .common)
+        menu.popUp(positioning: nil, at: NSPoint(x: backdrop.frame.minX + 110, y: backdrop.frame.maxY - 30), in: nil)
+        timer.invalidate()
+        backdrop.close()
+    }
+
+    private func mouse(_ type: NSEvent.EventType, at x: CGFloat) -> NSEvent? {
+        NSEvent.mouseEvent(
+            with: type, location: NSPoint(x: origin.x + x, y: origin.y + 11), modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: controls.brightnessRow.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
+    }
+
+    private func post(_ type: NSEvent.EventType, at x: CGFloat) {
+        if let event = mouse(type, at: x) { NSApp.postEvent(event, atStart: false) }
+    }
+
+    @objc private func tick() {
+        let row = controls.brightnessRow
+        let width = row.slider.frame.width
+        ticks += 1
+        // The menu takes a moment to open and to settle.
+        if ticks < 60 { return }
+        if ticks == 60 {
+            guard let window = row.window else { return menu.cancelTracking() }
+            menuWidth = window.frame.width
+            rowWidth = row.frame.width
+            picture = try? photograph([window, backdrop], size: backdrop.frame.size, withShadows: false)
+            origin = row.slider.convert(NSPoint.zero, to: nil)
+            heapBefore = heapInUse()
+            return post(.leftMouseDown, at: width / 2)
+        }
+        if let endedAt {
+            if ticks == endedAt + 30 {
+                dragEnded = !row.slider.isDragging
+                menu.cancelTracking()
+            }
+            return
+        }
+        for _ in 0..<20 {
+            posted += 1
+            // Back and forth over the whole track, 200 events each way.
+            let phase = Double(posted % 400) / 400
+            post(.leftMouseDragged, at: CGFloat(phase < 0.5 ? phase * 2 : 2 - phase * 2) * width)
+        }
+        growth = max(growth, heapInUse() - heapBefore)
+        if posted >= events {
+            post(.leftMouseUp, at: 0)
+            endedAt = ticks
+        }
+    }
+}
+
+@Suite struct MenuOnScreenTests {
+    /// Pictures of the open menu, and a drag played into it to see what it costs. Runs only
+    /// when PREVIEW_DIR is set, since it opens a menu on screen for a few seconds.
+    ///
+    /// It runs in a process of its own. Once a process has used AppKit's event loop, which a
+    /// menu does, every event from the window server stops the main run loop to hand it over,
+    /// and the test runner takes its run loop stopping to mean that the tests are over.
+    @Test func aDragInTheOpenMenu() async {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+        await #expect(processExitsWith: .success) {
+            try await MainActor.run {
+                NSApplication.shared.setActivationPolicy(.accessory)
+                for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+                    let session = MenuSession(appearance: appearance, events: 4000)
+                    session.run()
+                    let name = "menu-\(appearance == .aqua ? "light" : "dark")"
+                    try writePreview(try #require(session.picture), named: name)
+
+                    // The rows are as wide as the menu, which the line of shortcuts can make
+                    // wider than they ask for.
+                    let rowWidth = try #require(session.rowWidth)
+                    #expect(rowWidth == session.menuWidth)
+                    // 4,000 events end where they began, at the left end, with every move passed on.
+                    #expect(session.dragEnded, "the menu closed before the drag was over")
+                    #expect(session.controls.brightnessRow.slider.value == 0)
+                    #expect(session.host.commands.count > 3000)
+                    #expect(session.host.commands.last == .set(.brightness, percent: 0))
+                    #expect(session.host.leftoversThatOutlivedTheirEvent == 0)
+                    #expect(session.growth < 1_048_576, "the heap grew by \(session.growth / 1024) KB during the drag")
+                }
+            }
+        }
     }
 }
