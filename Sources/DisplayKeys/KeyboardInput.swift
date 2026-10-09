@@ -8,13 +8,14 @@ final class KeyboardInput {
     /// A key or shortcut asked for this command.
     var onCommand: ((Command) -> Void)?
     /// What deciding about a media key depends on; nil while display control is unavailable.
+    /// It is asked for only by `updateRouting`.
     var routingContext: (() -> KeyRouting.Context?)?
 
     private(set) var input = AppStatus.Input()
     let watch = KeyWatch()
     private let access = AccessibilityAccess()
     private lazy var keyTap = MediaKeyTap(
-        handler: { [unowned self] event, fine in handle(event, fine: fine) },
+        handler: { [unowned self] event, decision in took(event, decision) },
         onDisabled: { [unowned self] in updateKeyTap() })
     private lazy var hotkeys = Hotkeys { [unowned self] action, fine in shortcutPressed(action, fine: fine) }
 
@@ -33,6 +34,7 @@ final class KeyboardInput {
         reloadShortcuts()
         access.onChange = { [unowned self] in updateKeyTap() }
         let shouldAsk = access.start()
+        updateRouting()
         updateKeyTap()
         return shouldAsk
     }
@@ -111,24 +113,21 @@ final class KeyboardInput {
         }
     }
 
-    /// Handles a media key; returns false to leave it to macOS.
-    private func handle(_ event: MediaKeyEvent, fine: Bool) -> Bool {
-        guard let context = routingContext?() else { return false }
-        let decision = KeyRouting.decide(event, fine: fine, in: context)
-        if event.isDown {
-            let handled = decision != .passThrough
-            if handled { input.keysHandled += 1 } else { input.keysLeftToSystem += 1 }
-            input.record("key \(event.key), \(handled ? "handled" : "left to macOS")")
-            log.debug("Key \(String(describing: event.key), privacy: .public), handled: \(handled, privacy: .public)")
-        }
-        switch decision {
-        case .passThrough:
-            return false
-        case .swallow:
-            return true
-        case .run(let command):
-            onCommand?(command)
-            return true
-        }
+    /// Gives the key tap a fresh copy of what its decisions depend on. The tap decides on a
+    /// thread of its own and cannot ask, so this is called whenever the displays, the sound
+    /// output or the arrangement of the screens changes.
+    func updateRouting() {
+        keyTap.routing = routingContext?()
+    }
+
+    /// Takes note of a key press the tap has decided about, and runs its command.
+    private func took(_ event: MediaKeyEvent, _ decision: KeyRouting.Decision) {
+        let handled = decision != .passThrough
+        if handled { input.keysHandled += 1 } else { input.keysLeftToSystem += 1 }
+        input.record("key \(event.key), \(handled ? "handled" : "left to macOS")")
+        log.debug("Key \(String(describing: event.key), privacy: .public), handled: \(handled, privacy: .public)")
+        if case .run(let command) = decision { onCommand?(command) }
+        // Should a change ever have gone unnoticed, it is picked up here for the presses that follow.
+        updateRouting()
     }
 }

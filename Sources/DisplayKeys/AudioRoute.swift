@@ -6,6 +6,8 @@ import Foundation
 @MainActor
 final class AudioRoute {
     private(set) var outputIsDisplay = false
+    /// Called when sound starts or stops going to such a display.
+    var onChange: (() -> Void)?
     private var isListening = false
 
     /// Follows changes of the default output device; event-driven, no polling.
@@ -22,8 +24,10 @@ final class AudioRoute {
     }
 
     func refresh() {
+        let wasDisplay = outputIsDisplay
         outputIsDisplay =
             Self.defaultOutputDevice().map { Self.isDisplayTransport($0) && !Self.hasVolumeControl($0) } ?? false
+        if outputIsDisplay != wasDisplay { onChange?() }
     }
 
     private static func propertyAddress(

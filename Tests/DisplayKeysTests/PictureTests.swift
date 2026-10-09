@@ -236,7 +236,8 @@ extension GlassWindowTests {
         #expect(osd.shown == .watchingKeys && osd.isOnScreen)
 
         osd.release(.watchingKeys)
-        try await Task.sleep(for: .milliseconds(700))
+        // The fade takes a quarter of a second, and longer while other tests keep the main thread busy.
+        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
         #expect(!osd.isOnScreen)
     }
 

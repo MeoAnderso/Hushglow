@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
                 readValues: { [unowned self] in readValues(of: $0, answer: $1) },
                 status: { [unowned self] in status }))
         keyboard.watch.onEnd = { [unowned self] in osd.release(.watchingKeys) }
+        audio.onChange = { [unowned self] in keyboard.updateRouting() }
         audio.startListening()
 
         systemEvents.onDisplaysSlept = { [unowned self] in
@@ -70,6 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         // Plugging a display in produces a burst of these; act once it is over.
         systemEvents.onDisplaysReconfigured = { [unowned self] in
             scheduleRefresh(after: Self.reconfigurationSettleDelay)
+            // Which display is the main one may have changed already.
+            keyboard.updateRouting()
         }
         systemEvents.start()
 
@@ -197,7 +200,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
                 MainActor.assumeIsolated { self.scheduleRefresh(after: 1) }
             }
         }
-        displays.onChange = { [unowned self] in statusMenu?.displaysChanged() }
+        displays.onChange = { [unowned self] in
+            statusMenu?.displaysChanged()
+            keyboard.updateRouting()
+        }
         displays.onMismatch = { [unowned self] in displayDisagreed($0) }
         displays.onRead = { [unowned self] features, duration in
             lastReadMilliseconds = Int((duration * 1000).rounded())

@@ -934,6 +934,167 @@ final class StubMenuHost: StatusMenuHost {
     }
 }
 
+// MARK: The keyboard's own keys
+
+@MainActor
+@Suite struct KeyRouterTests {
+    @MainActor
+    private final class Told {
+        var keys: [MediaKeyEvent.Key] = []
+        var decisions: [KeyRouting.Decision] = []
+        var disabled = 0
+    }
+
+    private let told = Told()
+    private let router: KeyRouter
+
+    init() {
+        let told = told
+        router = KeyRouter(
+            handler: { event, decision in
+                told.keys.append(event.key)
+                told.decisions.append(decision)
+            }, onDisabled: { told.disabled += 1 })
+    }
+
+    /// `NSEvent.data1` for a key: 0 and 1 are the volume keys, 2 and 3 brightness, 7 mute.
+    private nonisolated static func data(_ code: Int, isDown: Bool = true, isRepeat: Bool = false) -> Int {
+        code << 16 | (isDown ? 0xA : 0xB) << 8 | (isRepeat ? 1 : 0)
+    }
+
+    private func context(soundGoesToDisplay: Bool = true) -> KeyRouting.Context {
+        KeyRouting.Context(
+            hasBrightness: true, hasVolume: true, soundGoesToDisplay: soundGoesToDisplay, mainDisplayIsBuiltIn: false)
+    }
+
+    /// Has the router decide about events on a thread that is not the main one, as the tap's is.
+    private func route(_ events: [(data1: Int, fine: Bool)], subtype: Int = AuxiliaryKey.eventSubtype) async -> [Bool] {
+        let router = router
+        let answers = await Task.detached {
+            events.map { router.route(subtype: subtype, data1: $0.data1, fine: $0.fine) }
+        }.value
+        // What the router sent to the main thread arrives before anything sent after it.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        return answers
+    }
+
+    @Test func decidesWithoutTheMainThreadAndTellsItAfterwards() async {
+        router.context = context()
+        let answers = await route([
+            (Self.data(0), true), (Self.data(0, isDown: false), false), (Self.data(3), false),
+            (Self.data(7), false), (Self.data(7, isRepeat: true), false),
+        ])
+        // Every one is a key of the display's, and none of them reaches macOS.
+        #expect(answers == [true, true, true, true, true])
+        // The main thread hears of the presses in the order they came, not of the release.
+        #expect(told.keys == [.volumeUp, .brightnessDown, .mute, .mute])
+        #expect(
+            told.decisions == [
+                .run(.step(.volume, up: true, fine: true)), .run(.step(.brightness, up: false, fine: false)),
+                .run(.mute(.toggle)), .swallow,
+            ])
+    }
+
+    @Test func leavesToMacOSWhatIsNotTheDisplays() async {
+        router.context = context(soundGoesToDisplay: false)
+        // A volume key while sound goes elsewhere, a playback key, and an event that is no key.
+        let keys = await route([(Self.data(0), false), (Self.data(16), false)])
+        let other = await route([(Self.data(0), false)], subtype: 7)
+        #expect(keys == [false, false] && other == [false])
+        // The volume key is still counted, as one left to macOS.
+        #expect(told.keys == [.volumeUp] && told.decisions == [.passThrough])
+    }
+
+    /// The tap's thread works from a copy, which counts from the moment it is replaced.
+    @Test func decidesFromTheContextItWasLastGiven() async {
+        #expect(await route([(Self.data(0), false)]) == [false])
+        #expect(told.keys.isEmpty)
+
+        router.context = context()
+        #expect(router.context?.soundGoesToDisplay == true)
+        #expect(await route([(Self.data(0), false)]) == [true])
+
+        router.context = context(soundGoesToDisplay: false)
+        #expect(await route([(Self.data(0), false)]) == [false])
+        router.context = nil
+        #expect(await route([(Self.data(2), false)]) == [false])
+        #expect(told.decisions == [.run(.step(.volume, up: true, fine: false)), .passThrough])
+    }
+
+    @Test func passesOnThatMacOSSwitchedTheTapOff() async {
+        let router = router
+        await Task.detached { router.tapWasDisabled() }.value
+        _ = await route([])
+        #expect(told.disabled == 1)
+    }
+}
+
+@Suite struct RunLoopThreadTests {
+    /// Stands in for a tap: a run loop source that notes on which thread it was served.
+    private final class Probe: @unchecked Sendable {
+        let wasServed = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var runLoop: CFRunLoop?
+        private var servedOnMainThread: Bool?
+
+        var scheduledOn: CFRunLoop? {
+            get { lock.withLock { runLoop } }
+            set { lock.withLock { runLoop = newValue } }
+        }
+
+        var wasServedOnMainThread: Bool? {
+            get { lock.withLock { servedOnMainThread } }
+            set { lock.withLock { servedOnMainThread = newValue } }
+        }
+    }
+
+    private static func source(for probe: Probe) -> CFRunLoopSource {
+        var context = CFRunLoopSourceContext()
+        context.info = Unmanaged.passUnretained(probe).toOpaque()
+        context.schedule = { info, runLoop, _ in
+            guard let info else { return }
+            Unmanaged<Probe>.fromOpaque(info).takeUnretainedValue().scheduledOn = runLoop
+        }
+        context.perform = { info in
+            guard let info else { return }
+            let probe = Unmanaged<Probe>.fromOpaque(info).takeUnretainedValue()
+            probe.wasServedOnMainThread = Thread.isMainThread
+            probe.wasServed.signal()
+        }
+        return CFRunLoopSourceCreate(nil, 0, &context)
+    }
+
+    /// The thread serves its source away from the main thread, keeps what the source's
+    /// callback works with, and ends when the source is taken away.
+    @Test func servesItsSourceOnItsOwnUntilItIsStopped() throws {
+        weak var kept: Probe?
+        let source: CFRunLoopSource
+        let thread: RunLoopThread
+        do {
+            let probe = Probe()
+            kept = probe
+            source = Self.source(for: probe)
+            thread = RunLoopThread(serving: source, keeping: probe, name: "Test")
+        }
+        thread.startServing()
+        #expect(thread.isExecuting)
+        // Nothing here holds the probe any more; the thread does.
+        let probe = try #require(kept)
+        let runLoop = try #require(probe.scheduledOn)
+
+        CFRunLoopSourceSignal(source)
+        CFRunLoopWakeUp(runLoop)
+        #expect(probe.wasServed.wait(timeout: .now() + 2) == .success)
+        #expect(probe.wasServedOnMainThread == false)
+
+        thread.stopServing()
+        for _ in 0..<400 where !thread.isFinished { Thread.sleep(forTimeInterval: 0.005) }
+        #expect(thread.isFinished)
+    }
+}
+
 @MainActor
 @Suite struct KeyWatchTests {
     /// The end of a watch takes the indicator's notice of it away, so only a watch that ran
