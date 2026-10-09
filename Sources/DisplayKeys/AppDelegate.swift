@@ -43,6 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         keyboard.onCommand = { [unowned self] in run($0, showOSD: true) }
         keyboard.routingContext = { [unowned self] in routingContext }
         let shouldAskAboutKeys = keyboard.start()
+        // With the menu open the shortcuts come as key presses on their way to the menu.
+        if let application = NSApp as? Application {
+            application.takeKeyFromMenu = { [unowned self] in keyboard.takeShortcut(from: $0) }
+        } else {
+            log.error("The application object is not the app's own; shortcuts will wait for the menu to close")
+        }
 
         let statusMenu = StatusMenu(host: self)
         self.statusMenu = statusMenu
@@ -178,7 +184,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     }
 
     func resumeShortcuts() {
-        keyboard.reloadShortcuts()
+        keyboard.resumeShortcuts()
+    }
+
+    func menuDidChange(isOpen: Bool) {
+        keyboard.menuIsOpen = isOpen
     }
 
     func canRegister(_ shortcut: Shortcut) -> Bool {

@@ -14,6 +14,8 @@ protocol StatusMenuHost: AnyObject {
     func refreshKeyboardAccess()
     func enableKeyboardKeys()
     func showSettings()
+    /// The menu has opened or closed.
+    func menuDidChange(isOpen: Bool)
 }
 
 /// The menu bar item: sliders for mouse control, plus status and the way into Settings.
@@ -43,10 +45,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        host.menuDidChange(isOpen: true)
         // Values changed with the display's own buttons are picked up here.
         host.readDisplays()
         // So is access granted in System Settings, should its notifications ever go missing.
         host.refreshKeyboardAccess()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        host.menuDidChange(isOpen: false)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {

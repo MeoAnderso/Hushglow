@@ -506,7 +506,90 @@ private final class MenuSession: NSObject {
     }
 }
 
-@Suite struct MenuOnScreenTests {
+/// Opens a real menu and plays key presses into it, to see which of them the menu gets.
+@MainActor
+private final class KeySession: NSObject, NSMenuDelegate {
+    /// The shortcuts that were taken on their way to the menu.
+    private(set) var taken: [String] = []
+    /// The items the menu highlighted, which is what a key press that reaches it does.
+    private(set) var highlighted: [String] = []
+    private let menu = NSMenu()
+    private var ticks = 0
+
+    override init() {
+        super.init()
+        menu.items = ["One", "Two", "Three"].map { NSMenuItem(title: $0, action: #selector(pick), keyEquivalent: "") }
+        for item in menu.items { item.target = self }
+        menu.delegate = self
+    }
+
+    /// Returns when the menu has closed again.
+    func run() {
+        let timer = Timer(timeInterval: 0.01, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+        RunLoop.main.add(timer, forMode: .common)
+        menu.popUp(positioning: nil, at: NSPoint(x: 200, y: 400), in: nil)
+        timer.invalidate()
+    }
+
+    /// What the app does with a key press on its way to the menu: Ctrl-Option-Up is its own.
+    func take(_ event: NSEvent) -> Bool {
+        guard let shortcut = Shortcut(keyPress: event), shortcut == Shortcut("ctrl+alt+up") else { return false }
+        taken.append(shortcut.text)
+        return true
+    }
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        if let item { highlighted.append(item.title) }
+    }
+
+    @objc private func pick() {}
+
+    private func press(_ keyCode: UInt16, _ character: Int, _ flags: NSEvent.ModifierFlags = []) {
+        let characters = String(UnicodeScalar(UInt16(character)).map(Character.init) ?? " ")
+        let event = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: flags.union([.numericPad, .function]),
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil, characters: characters,
+            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)
+        if let event { NSApp.postEvent(event, atStart: false) }
+    }
+
+    @objc private func tick() {
+        ticks += 1
+        // The menu takes a moment to open. Then: Down, Ctrl-Option-Up, Down.
+        switch ticks {
+        case 60, 90: press(0x7D, NSDownArrowFunctionKey)
+        case 75: press(0x7E, NSUpArrowFunctionKey, [.control, .option])
+        case 120: menu.cancelTracking()
+        default: break
+        }
+    }
+}
+
+/// One at a time: a menu that opens closes whichever other one is open.
+@Suite(.serialized) struct MenuOnScreenTests {
+    /// With a menu open, a key press reaches the app only through the menu's loop, which asks
+    /// the application for each event. A press that is one of the app's shortcuts is taken
+    /// there and the menu never has it; any other goes on to the menu. Runs only when
+    /// PREVIEW_DIR is set, and in a process of its own, for the same reason as the test below
+    /// and because the application object has to be the app's own from the start.
+    @Test func aShortcutIsTakenOnItsWayToTheOpenMenu() async {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+        await #expect(processExitsWith: .success) {
+            try await MainActor.run {
+                let application = try #require(Application.shared as? Application)
+                application.setActivationPolicy(.accessory)
+                let session = KeySession()
+                application.takeKeyFromMenu = { session.take($0) }
+                session.run()
+                // A real click anywhere closes the menu early, as it would for anyone.
+                #expect(session.taken == ["ctrl+alt+up"])
+                // Down moved to the first item and then to the second; the shortcut between
+                // them moved nothing.
+                #expect(session.highlighted == ["One", "Two"])
+            }
+        }
+    }
+
     /// Pictures of the open menu, and a drag played into it to see what it costs. Runs only
     /// when PREVIEW_DIR is set, since it opens a menu on screen for a few seconds.
     ///

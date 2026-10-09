@@ -103,6 +103,20 @@ final class Hotkeys: NSObject {
         return UInt32(flags)
     }
 
+    /// Which action a shortcut stands for, and whether as a quarter step, given every action's
+    /// shortcut. It answers for a key press what registering does for a hot key.
+    static func binding(
+        for shortcut: Shortcut, among shortcuts: [Shortcut.Action: Shortcut], quarterSteps: Bool
+    ) -> (action: Shortcut.Action, fine: Bool)? {
+        for action in Shortcut.Action.allCases {
+            guard let claimed = shortcuts[action]?.claimed(for: action, quarterSteps: quarterSteps),
+                let index = claimed.firstIndex(of: shortcut)
+            else { continue }
+            return (action, index == 1)
+        }
+        return nil
+    }
+
     /// The pace of the keyboard's own key repeat, from System Settings → Keyboard, so that a
     /// held shortcut repeats as any held key does. nil when key repeat is switched off there.
     static func repeatPace(

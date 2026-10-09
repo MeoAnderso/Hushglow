@@ -11,7 +11,16 @@ final class KeyboardInput {
     /// It is asked for only by `updateRouting`.
     var routingContext: (() -> KeyRouting.Context?)?
 
+    /// Why the shortcuts are released at the moment.
+    private enum Pause {
+        /// A field in Settings is waiting for keys.
+        case recording
+        /// The app's own menu is open.
+        case menu
+    }
+
     private(set) var input = AppStatus.Input()
+    private var pauses: Set<Pause> = []
     let watch = KeyWatch()
     private let access = AccessibilityAccess()
     private lazy var keyTap = MediaKeyTap(
@@ -47,8 +56,16 @@ final class KeyboardInput {
 
     // MARK: Shortcuts
 
+    /// Registers the shortcuts afresh from the settings. While they are released this waits
+    /// until they are taken up again.
     func reloadShortcuts() {
+        register(logging: true)
+    }
+
+    private func register(logging: Bool) {
+        guard pauses.isEmpty else { return }
         hotkeys.reload()
+        guard logging else { return }
         let refused = hotkeys.statuses.filter { !$0.registered }.map(\.keys)
         log.notice("Shortcuts registered: \(self.hotkeys.statuses.count - refused.count)")
         if !refused.isEmpty {
@@ -62,7 +79,44 @@ final class KeyboardInput {
 
     /// Releases the shortcuts, so that pressing one can be recorded instead of acted on.
     func pauseShortcuts() {
+        pause(.recording)
+    }
+
+    func resumeShortcuts() {
+        resume(.recording)
+    }
+
+    /// Whether the app's own menu is open. macOS holds the app's shortcuts back for that time
+    /// and delivers them when the menu closes, so they are released while it is open: their
+    /// keys then arrive as ordinary key presses, which `takeShortcut` picks out.
+    var menuIsOpen = false {
+        didSet {
+            guard menuIsOpen != oldValue else { return }
+            if menuIsOpen { pause(.menu) } else { resume(.menu) }
+        }
+    }
+
+    /// Takes a key press that the open menu was about to get, if it is one of the shortcuts.
+    /// Returns whether it was, in which case the menu must not get it.
+    func takeShortcut(from event: NSEvent) -> Bool {
+        guard menuIsOpen, let shortcut = Shortcut(keyPress: event),
+            let binding = Hotkeys.binding(
+                for: shortcut, among: ShortcutSettings.shortcuts, quarterSteps: ShortcutSettings.quarterSteps)
+        else { return false }
+        // A held key repeats by itself here, at the keyboard's own pace. Mute does not repeat.
+        if !event.isARepeat || binding.action.repeatsWhileHeld { shortcutPressed(binding.action, fine: binding.fine) }
+        return true
+    }
+
+    private func pause(_ reason: Pause) {
+        pauses.insert(reason)
         hotkeys.unregisterAll()
+    }
+
+    private func resume(_ reason: Pause) {
+        pauses.remove(reason)
+        // Coming back from the menu is no news for the log; what was just recorded may be.
+        register(logging: reason == .recording)
     }
 
     /// Whether macOS accepts the shortcut. Meant for when the app's own shortcuts are paused.

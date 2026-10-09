@@ -8,8 +8,9 @@ if CLI.handles(arguments) {
 // One instance only: a second one would install a second key tap and double every step.
 guard AppInfo.otherInstance == nil else { exit(0) }
 
+// Asked for before anything else can ask for the plain one: the first to ask decides its class.
+let application = Application.shared
 let delegate = AppDelegate()
-let application = NSApplication.shared
 application.delegate = delegate
 application.setActivationPolicy(.accessory)
 application.run()

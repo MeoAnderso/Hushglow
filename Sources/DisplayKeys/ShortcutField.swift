@@ -85,8 +85,7 @@ final class ShortcutField: NSView {
     /// Takes a key press; false when the field has no use for it.
     private func handle(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
-        let modifiers = Self.modifiers(of: event)
-        let isBare = modifiers.isEmpty
+        let isBare = Shortcut.modifiers(of: event).isEmpty
 
         // The change is passed on before the recording ends, so that whoever puts the app's
         // shortcuts back at that point already has the new one.
@@ -107,7 +106,7 @@ final class ShortcutField: NSView {
             return true
         }
 
-        let recorded = Shortcut(keyCode: Int(event.keyCode), modifiers: modifiers)
+        let recorded = Shortcut(keyPress: event)
         if let reason = validate?(recorded) {
             onMessage?(reason)
             return true
@@ -118,15 +117,6 @@ final class ShortcutField: NSView {
         onChange?(recorded)
         isRecording = false
         return true
-    }
-
-    private static func modifiers(of event: NSEvent) -> Shortcut.Modifiers {
-        var modifiers: Shortcut.Modifiers = []
-        if event.modifierFlags.contains(.control) { modifiers.insert(.control) }
-        if event.modifierFlags.contains(.option) { modifiers.insert(.option) }
-        if event.modifierFlags.contains(.shift) { modifiers.insert(.shift) }
-        if event.modifierFlags.contains(.command) { modifiers.insert(.command) }
-        return modifiers
     }
 
     // MARK: Drawing
@@ -169,5 +159,21 @@ final class ShortcutField: NSView {
         window?.makeFirstResponder(self)
         startRecording()
         return true
+    }
+}
+
+extension Shortcut {
+    /// The shortcut a key press amounts to; nil when the key is not one a shortcut can use.
+    init?(keyPress event: NSEvent) {
+        self.init(keyCode: Int(event.keyCode), modifiers: Self.modifiers(of: event))
+    }
+
+    static func modifiers(of event: NSEvent) -> Modifiers {
+        var modifiers: Modifiers = []
+        if event.modifierFlags.contains(.control) { modifiers.insert(.control) }
+        if event.modifierFlags.contains(.option) { modifiers.insert(.option) }
+        if event.modifierFlags.contains(.shift) { modifiers.insert(.shift) }
+        if event.modifierFlags.contains(.command) { modifiers.insert(.command) }
+        return modifiers
     }
 }

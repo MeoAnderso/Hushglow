@@ -163,11 +163,24 @@ final class StubHost: SettingsHost {
 }
 
 @MainActor
-private func keyPress(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+private func keyPress(
+    _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = [], isRepeat: Bool = false
+) throws -> NSEvent {
     try #require(
         NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
-            characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode))
+            characters: "", charactersIgnoringModifiers: "", isARepeat: isRepeat, keyCode: keyCode))
+}
+
+/// A press of a shortcut's keys.
+@MainActor
+private func keyPress(_ shortcut: Shortcut, addingShift: Bool = false, isRepeat: Bool = false) throws -> NSEvent {
+    var flags: NSEvent.ModifierFlags = addingShift ? [.shift] : []
+    if shortcut.modifiers.contains(.control) { flags.insert(.control) }
+    if shortcut.modifiers.contains(.option) { flags.insert(.option) }
+    if shortcut.modifiers.contains(.shift) { flags.insert(.shift) }
+    if shortcut.modifiers.contains(.command) { flags.insert(.command) }
+    return try keyPress(UInt16(shortcut.keyCode), flags, isRepeat: isRepeat)
 }
 
 @MainActor
@@ -364,6 +377,84 @@ private func keyPress(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) th
         #expect(Hotkeys.shortcut(keyCode: 0, carbonFlags: 0x100) == nil)
         // Whatever this Mac has switched on, the list holds usable shortcuts only.
         #expect(Hotkeys.usedByMacOS().allSatisfy { Shortcut.keyName(for: $0.keyCode) != nil })
+    }
+}
+
+/// macOS holds the app's shortcuts back while its own menu is open, so they are released for
+/// that time and taken from the key presses on their way to the menu.
+@MainActor
+@Suite struct ShortcutsInTheMenuTests {
+    @Test func aKeyPressIsMatchedToItsAction() throws {
+        let shortcuts: [Shortcut.Action: Shortcut] = [
+            .brightnessUp: try #require(Shortcut("ctrl+alt+up")), .mute: try #require(Shortcut("f15")),
+        ]
+        func binding(_ text: String, quarterSteps: Bool) throws -> String? {
+            Hotkeys.binding(for: try #require(Shortcut(text)), among: shortcuts, quarterSteps: quarterSteps)
+                .map { "\($0.action.rawValue)\($0.fine ? ", fine" : "")" }
+        }
+        #expect(try binding("ctrl+alt+up", quarterSteps: false) == "brightness-up")
+        #expect(try binding("f15", quarterSteps: true) == "mute")
+        // The Shift variant is a quarter step only where quarter steps are switched on, and
+        // only for an action that steps.
+        #expect(try binding("ctrl+alt+shift+up", quarterSteps: true) == "brightness-up, fine")
+        #expect(try binding("ctrl+alt+shift+up", quarterSteps: false) == nil)
+        #expect(try binding("shift+f15", quarterSteps: true) == nil)
+        #expect(try binding("ctrl+alt+down", quarterSteps: true) == nil)
+    }
+
+    @Test func aKeyPressAmountsToAShortcut() throws {
+        #expect(Shortcut(keyPress: try keyPress(0x7E, [.control, .option])) == Shortcut("ctrl+alt+up"))
+        #expect(Shortcut(keyPress: try keyPress(0x69, [.shift, .command])) == Shortcut("shift+cmd+f13"))
+        // The A key is not one a shortcut can use.
+        #expect(Shortcut(keyPress: try keyPress(0, [.control])) == nil)
+    }
+
+    /// The shortcuts as this Mac has them set. The settings are only read.
+    @Test func shortcutsAreTakenFromTheMenusKeysOnlyWhileItIsOpen() throws {
+        let keyboard = KeyboardInput()
+        var commands: [Command] = []
+        keyboard.onCommand = { commands.append($0) }
+        let stepping = Shortcut.Action.allCases.filter(\.repeatsWhileHeld)
+        guard let action = stepping.first(where: { ShortcutSettings.shortcut(for: $0) != nil }),
+            let shortcut = ShortcutSettings.shortcut(for: action)
+        else { return }
+
+        // Closed, the press is none of the menu's business: the registered shortcut answers.
+        #expect(!keyboard.takeShortcut(from: try keyPress(shortcut)))
+        #expect(commands.isEmpty)
+
+        keyboard.menuIsOpen = true
+        #expect(keyboard.takeShortcut(from: try keyPress(shortcut)))
+        // Held, the key repeats by itself, and each repeat is a step.
+        #expect(keyboard.takeShortcut(from: try keyPress(shortcut, isRepeat: true)))
+        #expect(commands == [action.command(fine: false), action.command(fine: false)])
+        #expect(keyboard.input.shortcutPresses == 2)
+
+        // With Shift it is a quarter step where those are switched on, and the menu's otherwise.
+        if !shortcut.modifiers.contains(.shift) {
+            let isOn = ShortcutSettings.quarterSteps
+            #expect(keyboard.takeShortcut(from: try keyPress(shortcut, addingShift: true)) == isOn)
+            #expect(commands.count == (isOn ? 3 : 2))
+            if isOn { #expect(commands.last == action.command(fine: true)) }
+        }
+
+        // Keys that are no shortcut stay with the menu: Down moves through its items.
+        let count = commands.count
+        #expect(!keyboard.takeShortcut(from: try keyPress(0x7D)))
+        #expect(!keyboard.takeShortcut(from: try keyPress(0, [.control, .option])))
+        #expect(commands.count == count)
+    }
+
+    /// Mute would flip back and forth for as long as its key was held.
+    @Test func aHeldMuteShortcutIsTakenOnce() throws {
+        guard let shortcut = ShortcutSettings.shortcut(for: .mute) else { return }
+        let keyboard = KeyboardInput()
+        var commands: [Command] = []
+        keyboard.onCommand = { commands.append($0) }
+        keyboard.menuIsOpen = true
+        #expect(keyboard.takeShortcut(from: try keyPress(shortcut)))
+        #expect(keyboard.takeShortcut(from: try keyPress(shortcut, isRepeat: true)))
+        #expect(commands == [.mute(.toggle)])
     }
 }
 
@@ -732,6 +823,7 @@ final class StubMenuHost: StatusMenuHost {
     func refreshKeyboardAccess() {}
     func enableKeyboardKeys() {}
     func showSettings() {}
+    func menuDidChange(isOpen: Bool) {}
 
     /// Each command leaves an object in the autorelease pool, as real handling does. How many
     /// were still there at the next command says whether the pool is emptied between events.
