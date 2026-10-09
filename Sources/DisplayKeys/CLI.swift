@@ -282,7 +282,9 @@ enum CLI {
                     + "mute \(status.muted ? "on" : "off")")
         }
         if let milliseconds = status.lastReadMilliseconds {
-            lines.append("Last read of the display: \(milliseconds) ms")
+            // A read takes its time for each value, so the figure says little without their number.
+            let values = status.lastReadValues.map { " for \($0) value\($0 == 1 ? "" : "s")" } ?? ""
+            lines.append("Last read of the display: \(milliseconds) ms\(values)")
         }
         if let bytes = status.memoryFootprint {
             lines.append("Memory: \(String(format: "%.1f", Double(bytes) / 1_048_576)) MB")

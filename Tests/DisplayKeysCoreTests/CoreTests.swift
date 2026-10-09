@@ -252,6 +252,40 @@ import Testing
         #expect(state.apply(.mute(.toggle))?.writes == [.init(.volume, 13)])
     }
 
+    /// For when the cache may be out of date: nothing is left unwritten on its word.
+    @Test func anAbsoluteCommandCanBeAppliedWithoutTrustingTheCache() {
+        var state = state()
+        #expect(state.apply(.set(.brightness, percent: 50))?.writes == [])
+        #expect(state.apply(.set(.brightness, percent: 50), trustingCache: false)?.writes == [.init(.brightness, 50)])
+        // Setting the volume unmutes, and the display may be muted without the cache knowing.
+        #expect(
+            state.apply(.set(.volume, percent: 13), trustingCache: false)?.writes == [
+                .init(.mute, DDC.Mute.off), .init(.volume, 13),
+            ])
+        #expect(state.apply(.mute(.off), trustingCache: false)?.writes == [.init(.mute, DDC.Mute.off)])
+        #expect(state.apply(.mute(.on), trustingCache: false)?.writes == [.init(.mute, DDC.Mute.on)])
+        #expect(state.apply(.mute(.on), trustingCache: false)?.writes == [.init(.mute, DDC.Mute.on)])
+        #expect(state.isMuted)
+    }
+
+    /// A step and a toggle start from the cached value, so they are worked out as ever.
+    @Test func aRelativeCommandIsNeverRewritten() {
+        var state = state(volume: 100)
+        #expect(state.apply(.step(.volume, up: true, fine: false), trustingCache: false)?.writes == [])
+        #expect(state.apply(.mute(.toggle), trustingCache: false)?.writes == [.init(.mute, DDC.Mute.on)])
+    }
+
+    /// An emulated mute exists in the cache alone, so there the cache is right at any age.
+    @Test func anEmulatedMuteIsKnownWhateverTheDisplayHolds() {
+        var state = state(mute: nil)
+        // Unmuting what is not muted must not put the remembered volume over the display's.
+        #expect(state.apply(.mute(.off), trustingCache: false)?.writes == [])
+        #expect(state.apply(.mute(.on), trustingCache: false)?.writes == [.init(.volume, 0)])
+        #expect(state.apply(.mute(.on), trustingCache: false)?.writes == [])
+        #expect(state.apply(.set(.volume, percent: 13), trustingCache: false)?.writes == [.init(.volume, 13)])
+        #expect(!state.isMuted)
+    }
+
     @Test func reportsMissingControls() {
         var state = DisplayState(brightness: DDC.Value(current: 50, maximum: 100), volume: nil, mute: nil)
         #expect(state.apply(.step(.volume, up: true, fine: false)) == nil)
@@ -504,6 +538,13 @@ import Testing
         #expect(Command.mute(.toggle).featureToRead == .mute)
         #expect(Command.mute(.toggle).control == .volume)
         #expect(Command.Control.volume.features == [.volume, .mute])
+    }
+
+    @Test func knowsWhetherItDependsOnWhatTheDisplayHolds() {
+        #expect(Command.set(.brightness, percent: 40).isAbsolute && Command.set(.volume, percent: 0).isAbsolute)
+        #expect(Command.mute(.on).isAbsolute && Command.mute(.off).isAbsolute)
+        #expect(!Command.mute(.toggle).isAbsolute)
+        #expect(!Command.step(.volume, up: false, fine: true).isAbsolute)
     }
 
     @Test func aStateReportsItsValuesByFeature() {

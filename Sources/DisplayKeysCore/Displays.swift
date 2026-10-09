@@ -75,6 +75,16 @@ public final class Displays<Transport: DisplayTransport> {
         let feedback: FeedbackHandler
     }
 
+    /// Why the displays are read.
+    private enum Purpose {
+        /// Commands are waiting to know what the display holds.
+        case commands
+        /// A burst of writes is over and is read back.
+        case readBack
+        /// The values are wanted afresh, as when the menu opens.
+        case again
+    }
+
     private let transport: Transport
     private let queue: DispatchQueue
     private let timing: Timing
@@ -90,7 +100,9 @@ public final class Displays<Transport: DisplayTransport> {
     /// Counts commands per control, so a reading that a newer command has overtaken is dropped.
     private var epochs: [Command.Control: Int] = [:]
     private var syncedAt: [DDC.Feature: Date] = [:]
-    private var isSyncing = false
+    /// Reads asked for and not yet answered. One for the menu can come while another is under way.
+    private var readsInFlight = 0
+    private var isSyncing: Bool { readsInFlight > 0 }
     /// Commands for a stale value, held until the display has been read.
     private var waiting: [Waiting] = []
     /// The states the waiting commands are expected to produce, for immediate feedback.
@@ -129,10 +141,31 @@ public final class Displays<Transport: DisplayTransport> {
         refresh(attempt: 0)
     }
 
+    /// Reads every value again from the displays already known, and brings the cache in line
+    /// with them: what was changed with a display's own buttons shows up. This is for when
+    /// the menu opens. The displays are not looked for afresh, unless none is known or one of
+    /// them answers nothing at all.
+    public func readValues() {
+        guard !entries.isEmpty else { return refresh() }
+        // A control that has just been written is left to its read-back, which is due anyway
+        // and knows what to do when the display did not take the write. Read here, the old
+        // value would pass for one set with the display's buttons.
+        let controls = Command.Control.allCases.filter { !unverified.contains($0) }
+        if !controls.isEmpty { read(controls.flatMap(\.features), for: Set(controls), purpose: .again) }
+    }
+
     /// Applies a command to every display that has the control.
     public func apply(_ command: Command, feedback: @escaping FeedbackHandler = { _, _ in }) {
         if isFresh(command.featureToRead) {
             feedback(applyNow(command), true)
+            return
+        }
+        // A command that says what the display is to hold need not know what it holds now.
+        // It is written at once, with nothing left out on the stale cache's word. Only when
+        // commands that do need to know are waiting for the same control does it take its
+        // turn behind them.
+        if command.isAbsolute, !waiting.contains(where: { $0.command.control == command.control }) {
+            feedback(applyNow(command, trustingCache: false), true)
             return
         }
         // The cache may be out of date: show the expected result, but read before writing.
@@ -176,13 +209,13 @@ public final class Displays<Transport: DisplayTransport> {
         return now().timeIntervalSince(time) < timing.staleAfter
     }
 
-    private func applyNow(_ command: Command) -> Feedback? {
+    private func applyNow(_ command: Command, trustingCache: Bool = true) -> Feedback? {
         var feedback: Feedback?
         var wrote = false
         let time = now()
         for index in entries.indices {
             let before = entries[index].state
-            guard let outcome = entries[index].state.apply(command) else { continue }
+            guard let outcome = entries[index].state.apply(command, trustingCache: trustingCache) else { continue }
             for write in outcome.writes {
                 writer.submit(entries[index].display, write.feature, write.value)
                 syncedAt[write.feature] = time
@@ -219,7 +252,7 @@ public final class Displays<Transport: DisplayTransport> {
         for item in waiting where !features.contains(item.command.featureToRead) {
             features.append(item.command.featureToRead)
         }
-        read(features, for: Set(waiting.map(\.command.control)), isVerify: false)
+        read(features, for: Set(waiting.map(\.command.control)), purpose: .commands)
     }
 
     /// Applies the waiting commands whose value has just been read, and reads for the rest.
@@ -295,8 +328,8 @@ public final class Displays<Transport: DisplayTransport> {
     }
 
     /// Reads features from every display and reconciles the cache with the readings.
-    private func read(_ features: [DDC.Feature], for controls: Set<Command.Control>, isVerify: Bool) {
-        isSyncing = true
+    private func read(_ features: [DDC.Feature], for controls: Set<Command.Control>, purpose: Purpose) {
+        readsInFlight += 1
         let displays = entries.map(\.display)
         let startEpochs = epochs
         let topology = topology
@@ -309,7 +342,7 @@ public final class Displays<Transport: DisplayTransport> {
                 MainActor.assumeIsolated {
                     if !displays.isEmpty { self.onRead?(features, duration) }
                     self.finishRead(
-                        features, for: controls, isVerify: isVerify, readings: readings, startEpochs: startEpochs,
+                        features, for: controls, purpose: purpose, readings: readings, startEpochs: startEpochs,
                         topology: topology)
                 }
             }
@@ -317,10 +350,10 @@ public final class Displays<Transport: DisplayTransport> {
     }
 
     private func finishRead(
-        _ features: [DDC.Feature], for controls: Set<Command.Control>, isVerify: Bool, readings: [[DDC.Value?]],
+        _ features: [DDC.Feature], for controls: Set<Command.Control>, purpose: Purpose, readings: [[DDC.Value?]],
         startEpochs: [Command.Control: Int], topology: Int
     ) {
-        isSyncing = false
+        readsInFlight -= 1
         // Readings taken before a rediscovery, or before the displays went to sleep, say
         // nothing about the displays as they are now. Commands that came since are read for.
         guard topology == self.topology else {
@@ -341,7 +374,7 @@ public final class Displays<Transport: DisplayTransport> {
         for control in controls {
             // Drop a reading that a newer command has already overtaken.
             guard epochs[control] == startEpochs[control] else { continue }
-            let afterWrite = isVerify && unverified.remove(control) != nil
+            let afterWrite = purpose == .readBack && unverified.remove(control) != nil
             if afterWrite, resendIfNotTaken(control, features: features, readings: readings) { continue }
             for (index, values) in readings.enumerated() {
                 for (feature, value) in zip(features, values) where control.features.contains(feature) {
@@ -359,6 +392,10 @@ public final class Displays<Transport: DisplayTransport> {
         // A reading that was dropped leaves its control unverified; make sure it is read again.
         if !unverified.isEmpty { scheduleVerify() }
         drainWaiting(read: features)
+        // A display that answered nothing at all may have gone, or another may have taken its
+        // place. Looking for the displays is what finds that out, as it did on every opening
+        // of the menu before.
+        if purpose == .again, readings.contains(where: { $0.allSatisfy { $0 == nil } }) { refresh() }
     }
 
     // MARK: Reading back after writes
@@ -405,7 +442,7 @@ public final class Displays<Transport: DisplayTransport> {
                     self.verifyIsScheduled = false
                     let controls = self.unverified
                     let features = Command.Control.allCases.filter(controls.contains).flatMap(\.features)
-                    if !controls.isEmpty { self.read(features, for: controls, isVerify: true) }
+                    if !controls.isEmpty { self.read(features, for: controls, purpose: .readBack) }
                 }
             }
         }

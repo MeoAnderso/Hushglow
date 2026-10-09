@@ -8,7 +8,8 @@ protocol StatusMenuHost: AnyObject {
     var displayControlIsAvailable: Bool { get }
     var keyboardKeysAreActive: Bool { get }
     func run(_ command: Command, showOSD: Bool)
-    func refreshDisplays()
+    /// Reads the displays' values again, without looking for the displays afresh.
+    func readDisplays()
     /// Reads again whether the keyboard's own keys are allowed.
     func refreshKeyboardAccess()
     func enableKeyboardKeys()
@@ -43,7 +44,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         // Values changed with the display's own buttons are picked up here.
-        host.refreshDisplays()
+        host.readDisplays()
         // So is access granted in System Settings, should its notifications ever go missing.
         host.refreshKeyboardAccess()
     }

@@ -65,6 +65,15 @@ public enum Command: Equatable, Sendable {
         }
     }
 
+    /// Whether the command says what the display is to hold, whatever it holds now. A step
+    /// and a toggle start from the current value instead.
+    public var isAbsolute: Bool {
+        switch self {
+        case .set, .mute(.on), .mute(.off): true
+        case .step, .mute(.toggle): false
+        }
+    }
+
     /// What has to be read from a display before this command can be applied to a stale cache.
     public var featureToRead: DDC.Feature {
         switch self {

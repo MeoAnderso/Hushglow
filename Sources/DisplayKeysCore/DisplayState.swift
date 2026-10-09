@@ -109,22 +109,27 @@ public struct DisplayState: Equatable, Sendable {
     }
 
     /// Applies a command; nil when the display lacks the control.
-    public mutating func apply(_ command: Command) -> Outcome? {
+    ///
+    /// A value the cache already holds is not written again. With `trustingCache` off it is,
+    /// for a command that says what the display is to hold: such a command can be applied
+    /// while the cache may be out of date, as long as nothing is left out on the cache's word.
+    public mutating func apply(_ command: Command, trustingCache: Bool = true) -> Outcome? {
+        let rewrites = !trustingCache && command.isAbsolute
         switch command {
         case .step(.brightness, let up, let fine):
             guard let value = brightness else { return nil }
-            return setBrightness(Level.stepped(value, up: up, fine: fine))
+            return setBrightness(Level.stepped(value, up: up, fine: fine), rewrites: false)
         case .set(.brightness, let percent):
             guard let value = brightness else { return nil }
-            return setBrightness(Level.value(percent: percent, maximum: value.maximum))
+            return setBrightness(Level.value(percent: percent, maximum: value.maximum), rewrites: rewrites)
         case .step(.volume, let up, let fine):
             guard let value = volume else { return nil }
-            return setVolume(Level.stepped(value, up: up, fine: fine))
+            return setVolume(Level.stepped(value, up: up, fine: fine), rewrites: false)
         case .set(.volume, let percent):
             guard let value = volume else { return nil }
-            return setVolume(Level.value(percent: percent, maximum: value.maximum))
+            return setVolume(Level.value(percent: percent, maximum: value.maximum), rewrites: rewrites)
         case .mute(let action):
-            return setMuted(action == .toggle ? !isMuted : action == .on)
+            return setMuted(action == .toggle ? !isMuted : action == .on, rewrites: rewrites)
         }
     }
 
@@ -157,8 +162,8 @@ public struct DisplayState: Equatable, Sendable {
 
     /// A value that did not change is not written again, so a key held at either end of the
     /// range sends nothing.
-    private mutating func setBrightness(_ current: Int) -> Outcome {
-        let changed = brightness?.current != current
+    private mutating func setBrightness(_ current: Int, rewrites: Bool) -> Outcome {
+        let changed = rewrites || brightness?.current != current
         brightness?.current = current
         return Outcome(
             writes: changed ? [Write(.brightness, current)] : [],
@@ -167,21 +172,26 @@ public struct DisplayState: Equatable, Sendable {
     }
 
     /// Changing the volume also unmutes, as the system volume keys do.
-    private mutating func setVolume(_ current: Int) -> Outcome {
+    private mutating func setVolume(_ current: Int, rewrites: Bool) -> Outcome {
         var writes: [Write] = []
-        if isMuted, hasHardwareMute { writes.append(Write(.mute, DDC.Mute.off)) }
+        // The display may have been muted without the cache knowing.
+        if hasHardwareMute, isMuted || rewrites { writes.append(Write(.mute, DDC.Mute.off)) }
         // An emulated mute left the display at volume 0, so the value must be written back.
-        if volume?.current != current || (isMuted && !hasHardwareMute) { writes.append(Write(.volume, current)) }
+        if rewrites || volume?.current != current || (isMuted && !hasHardwareMute) {
+            writes.append(Write(.volume, current))
+        }
         isMuted = false
         volume?.current = current
         return Outcome(
             writes: writes, feedback: Feedback(kind: .volume, value: volume ?? DDC.Value(current: 0, maximum: 0)))
     }
 
-    private mutating func setMuted(_ muted: Bool) -> Outcome? {
+    private mutating func setMuted(_ muted: Bool, rewrites: Bool) -> Outcome? {
         guard let volume else { return nil }
         let feedback = Feedback(kind: muted ? .muted : .volume, value: volume)
-        guard muted != isMuted else { return Outcome(writes: [], feedback: feedback) }
+        // An emulated mute exists in the cache alone, so there the cache is right at any age.
+        // Writing it again would put the remembered volume over whatever the display has now.
+        guard muted != isMuted || (rewrites && hasHardwareMute) else { return Outcome(writes: [], feedback: feedback) }
         isMuted = muted
         let write =
             hasHardwareMute

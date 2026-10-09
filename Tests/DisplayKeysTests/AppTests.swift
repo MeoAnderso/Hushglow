@@ -708,7 +708,7 @@ final class StubMenuHost: StatusMenuHost {
         lastLeftover = leftover
         _ = Unmanaged.passRetained(leftover).autorelease()
     }
-    func refreshDisplays() {}
+    func readDisplays() {}
     func refreshKeyboardAccess() {}
     func enableKeyboardKeys() {}
     func showSettings() {}
@@ -845,7 +845,8 @@ final class StubMenuHost: StatusMenuHost {
             askingIsDisabled: false, keyTapActive: true, soundGoesToDisplay: true, quarterSteps: false,
             shortcuts: [.init(action: "mute", keys: "ctrl+alt+end", registered: false, usedByMacOS: true)],
             input: .init(),
-            lastReadMilliseconds: 31, memoryFootprint: 24_536_000, isWatchingKeys: false, watchedKeys: ["key f11"])
+            lastReadMilliseconds: 31, lastReadValues: 1, memoryFootprint: 24_536_000, isWatchingKeys: false,
+            watchedKeys: ["key f11"])
     }
 
     @Test func carriesEveryMessageToTheApp() async {
@@ -904,6 +905,18 @@ final class StubMenuHost: StatusMenuHost {
         var older = makeStatus()
         older.memoryFootprint = nil
         #expect(!CLI.describe(older).contains("Memory"))
+    }
+
+    /// The menu reads three values at once where a key press reads one, so the time a read
+    /// took is reported with the number of values it was for.
+    @Test func theStatusSaysHowManyValuesTheLastReadWasFor() {
+        var status = makeStatus()
+        #expect(CLI.describe(status).split(separator: "\n").contains("Last read of the display: 31 ms for 1 value"))
+        status.lastReadMilliseconds = 92
+        status.lastReadValues = 3
+        #expect(CLI.describe(status).split(separator: "\n").contains("Last read of the display: 92 ms for 3 values"))
+        status.lastReadValues = nil
+        #expect(CLI.describe(status).split(separator: "\n").contains("Last read of the display: 92 ms"))
     }
 
     /// `DisplayKeys get` has the running app read the display, and gets what it answered.

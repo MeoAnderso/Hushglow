@@ -209,6 +209,168 @@ private final class Recorder {
         #expect(displays.primary?.isMuted == false)
     }
 
+    // MARK: Commands that say what the display is to hold
+
+    @Test func anAbsoluteCommandIsWrittenToAStaleCacheWithoutReadingFirst() async {
+        pause()
+        transport.change(.brightness, to: 80)
+        press(.set(.brightness, percent: 30))
+        // The result does not depend on what the display holds, so it is final at once.
+        #expect(recorder.fractions == [0.3])
+        #expect(recorder.finals == [true])
+        await settle()
+        #expect(transport.takeEvents() == ["set brightness=30", "get brightness"])
+        #expect(recorder.mismatches.isEmpty)
+    }
+
+    /// The cache may hold the very value that is asked for while the display holds another.
+    @Test func aStaleCacheDoesNotKeepAnAbsoluteCommandFromBeingWritten() async {
+        // While the cache is fresh it is believed: the display has 50 already.
+        press(.set(.brightness, percent: 50))
+        await settle()
+        #expect(transport.takeEvents().isEmpty)
+
+        pause()
+        transport.change(.brightness, to: 80)
+        press(.set(.brightness, percent: 50))
+        await settle()
+        #expect(transport.takeEvents() == ["set brightness=50", "get brightness"])
+        #expect(transport.value(.brightness) == 50)
+    }
+
+    /// Setting the volume unmutes, and the display may have been muted with its own buttons
+    /// since it was last heard from.
+    @Test func settingTheVolumeOnAStaleCacheUnmutesWhateverTheCacheSays() async {
+        pause()
+        transport.change(.mute, to: DDC.Mute.on)
+        press(.set(.volume, percent: 40))
+        #expect(recorder.finals == [true])
+        await settle()
+        #expect(
+            transport.takeEvents() == ["set mute=\(DDC.Mute.off)", "set volume=40", "get volume", "get mute"])
+        #expect(transport.value(.mute) == DDC.Mute.off)
+        #expect(displays.primary?.isMuted == false)
+        #expect(recorder.mismatches.isEmpty)
+    }
+
+    @Test func mutingAndUnmutingAStaleCacheIsWrittenWithoutReadingFirst() async {
+        pause()
+        transport.change(.mute, to: DDC.Mute.on)
+        // The cache says the display is not muted. It is, and has to be told.
+        press(.mute(.off))
+        #expect(recorder.finals == [true])
+        await settle()
+        #expect(transport.takeEvents() == ["set mute=\(DDC.Mute.off)", "get volume", "get mute"])
+        #expect(transport.value(.mute) == DDC.Mute.off)
+    }
+
+    /// A step that is still waiting for the display to be read was asked for first.
+    @Test func anAbsoluteCommandTakesItsTurnBehindOnesThatAreBeingReadFor() async {
+        pause()
+        transport.change(.brightness, to: 80)
+        press(brightnessUp)
+        press(.set(.brightness, percent: 30))
+        #expect(recorder.finals == [false, false])
+        await settle()
+        #expect(Array(recorder.fractions.suffix(2)) == [0.81, 0.3])
+        #expect(transport.takeEvents().first == "get brightness")
+        #expect(transport.value(.brightness) == 30)
+
+        // One for another control has nothing to wait for.
+        pause()
+        press(brightnessUp)
+        press(.set(.volume, percent: 40))
+        #expect(Array(recorder.finals.suffix(2)) == [false, true])
+        await settle()
+        #expect(transport.value(.volume) == 40 && transport.value(.brightness) == 31)
+    }
+
+    // MARK: Reading the values again
+
+    /// What the menu asks for when it opens: the values, and not a search for the displays.
+    @Test func readingTheValuesAgainPicksUpWhatWasChangedOutside() async {
+        let discoveries = transport.discoveries
+        var changes = 0
+        displays.onChange = { changes += 1 }
+        transport.change(.brightness, to: 80)
+        transport.change(.mute, to: DDC.Mute.on)
+
+        displays.readValues()
+        await settle()
+        #expect(transport.takeEvents() == ["get brightness", "get volume", "get mute"])
+        #expect(transport.discoveries == discoveries)
+        #expect(displays.primary?.brightness?.current == 80)
+        #expect(displays.primary?.isMuted == true)
+        #expect(changes == 1)
+        #expect(recorder.mismatches.map(\.kind) == [.changedOutside, .changedOutside])
+
+        // What was read counts as heard from: the next step is written without another read.
+        pause()
+        displays.readValues()
+        await settle()
+        _ = transport.takeEvents()
+        press(brightnessUp)
+        await settle()
+        #expect(transport.takeEvents().first == "set brightness=81")
+        #expect(changes == 1)
+    }
+
+    @Test func readingTheValuesAgainLooksForTheDisplaysWhenNoneIsKnown() async {
+        let empty = Displays(transport: transport, queue: queue, onWriteFailure: {})
+        let discoveries = transport.discoveries
+        empty.readValues()
+        await settle()
+        #expect(transport.discoveries == discoveries + 1)
+        #expect(empty.primary?.brightness?.current == 50)
+    }
+
+    /// A display that answers nothing may have gone, or another may have taken its place.
+    @Test func aDisplayThatAnswersNothingIsLookedForAgain() async {
+        let discoveries = transport.discoveries
+        // One that only lacks an answer for one value is still there.
+        transport.answer(.volume, false)
+        displays.readValues()
+        await settle()
+        #expect(transport.discoveries == discoveries)
+        #expect(displays.primary != nil)
+
+        for feature in DDC.Feature.allCases { transport.answer(feature, false) }
+        displays.readValues()
+        await settle()
+        #expect(transport.discoveries == discoveries + 1)
+        #expect(displays.primary == nil)
+    }
+
+    /// The menu can open while a key press is being read for. Both reads are answered, and
+    /// what the second one read before the key's write went out does not undo the step.
+    @Test func readingTheValuesAgainDuringAnotherReadLeavesTheStepInPlace() async {
+        pause()
+        press(brightnessUp)
+        displays.readValues()
+        await settle()
+        #expect(recorder.fractions == [0.56, 0.56])
+        #expect(displays.primary?.brightness?.current == 56)
+        #expect(transport.value(.brightness) == 56)
+        #expect(recorder.mismatches.isEmpty)
+        #expect(transport.takeEvents().filter { $0.hasPrefix("set") } == ["set brightness=56"])
+    }
+
+    /// Opening the menu straight after a key press must not take the place of the read-back:
+    /// a write the display lost would then be taken for a change made with its buttons.
+    @Test func readingTheValuesAgainLeavesAFreshWriteToItsReadBack() async {
+        transport.dropNextWrite()
+        press(brightnessUp)
+        displays.readValues()
+        // The read-back stands back for the read that is under way, so it takes a moment longer.
+        await settle { transport.value(.brightness) == 56 }
+        await settle()
+        #expect(transport.value(.brightness) == 56)
+        #expect(displays.primary?.brightness?.current == 56)
+        #expect(recorder.mismatches.isEmpty)
+        // Only the control that was not written is read for the menu.
+        #expect(Array(transport.takeEvents().prefix(3)) == ["set brightness=56", "get volume", "get mute"])
+    }
+
     @Test func aDroppedWriteIsSentAgain() async {
         transport.dropNextWrite()
         press(brightnessUp)

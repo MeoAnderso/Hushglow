@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     private var channel: CommandChannel?
     private var settingsWindow: SettingsWindow?
     private var welcomeWindow: WelcomeWindow?
-    private var lastReadMilliseconds: Int?
+    private var lastRead: (milliseconds: Int, values: Int)?
 
     var displayState: DisplayState? { displays?.primary }
     var displayControlIsAvailable: Bool { displays != nil }
@@ -152,6 +152,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         keyboard.requestAccess()
     }
 
+    func readDisplays() {
+        displays?.readValues()
+    }
+
     func refreshKeyboardAccess() {
         keyboard.updateKeyTap()
     }
@@ -206,8 +210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         }
         displays.onMismatch = { [unowned self] in displayDisagreed($0) }
         displays.onRead = { [unowned self] features, duration in
-            lastReadMilliseconds = Int((duration * 1000).rounded())
-            log.debug("Read \(features.count) value(s) from the display in \(Int((duration * 1000).rounded())) ms")
+            let milliseconds = Int((duration * 1000).rounded())
+            lastRead = (milliseconds, features.count)
+            log.debug("Read \(features.count) value(s) from the display in \(milliseconds) ms")
         }
         self.displays = displays
         displays.refresh()
@@ -259,7 +264,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             quarterSteps: ShortcutSettings.quarterSteps,
             shortcuts: keyboard.shortcutStatuses,
             input: keyboard.input,
-            lastReadMilliseconds: lastReadMilliseconds,
+            lastReadMilliseconds: lastRead?.milliseconds,
+            lastReadValues: lastRead?.values,
             memoryFootprint: ProcessMemory.footprint,
             isWatchingKeys: keyboard.watch.isWatching,
             watchedKeys: keyboard.watch.seen)
