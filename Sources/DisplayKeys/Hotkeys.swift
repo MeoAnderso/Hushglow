@@ -13,9 +13,18 @@ final class Hotkeys: NSObject {
         let fine: Bool
     }
 
+    /// How a held shortcut repeats: the wait before the first repeat, and the time between two.
+    struct RepeatPace: Equatable {
+        var delay: TimeInterval
+        var interval: TimeInterval
+    }
+
     private static let signature: OSType = 0x444B_4559  // "DKEY"
-    private static let repeatDelay: TimeInterval = 0.4
-    private static let repeatInterval: TimeInterval = 0.07
+    /// One unit of the system's Key Repeat setting; the fastest pace System Settings offers is two.
+    static let shortestRepeatInterval: TimeInterval = 1.0 / 60
+    /// The slowest pace System Settings offers is two seconds. Switched off, key repeat is
+    /// reported as an interval of more than an hour.
+    private static let longestRepeatInterval: TimeInterval = 60
     /// Stops a repeat whose key release was never delivered; enough to cross the whole range.
     private static let maximumRepeats = Level.fineSteps
 
@@ -94,6 +103,18 @@ final class Hotkeys: NSObject {
         return UInt32(flags)
     }
 
+    /// The pace of the keyboard's own key repeat, from System Settings → Keyboard, so that a
+    /// held shortcut repeats as any held key does. nil when key repeat is switched off there.
+    static func repeatPace(
+        delay: TimeInterval = NSEvent.keyRepeatDelay, interval: TimeInterval = NSEvent.keyRepeatInterval
+    ) -> RepeatPace? {
+        guard interval <= longestRepeatInterval else { return nil }
+        // No setting goes below this. Should a value ever do, a held shortcut must not cross
+        // the whole range in an instant.
+        let interval = max(interval, shortestRepeatInterval)
+        return RepeatPace(delay: max(delay, interval), interval: interval)
+    }
+
     func unregisterAll() {
         stopRepeating()
         for registration in registrations.values { UnregisterEventHotKey(registration.reference) }
@@ -115,11 +136,12 @@ final class Hotkeys: NSObject {
         }
         stopRepeating()
         handler(registration.action, registration.fine)
-        guard registration.action.repeatsWhileHeld else { return }
-        // Carbon reports only press and release, so holding the shortcut is repeated here.
+        // Carbon reports only press and release, so holding the shortcut is repeated here. The
+        // pace is read at each press, and so follows a change in System Settings.
+        guard registration.action.repeatsWhileHeld, let pace = Self.repeatPace() else { return }
         repeating = (id, 0)
         let timer = Timer(
-            fireAt: Date(timeIntervalSinceNow: Self.repeatDelay), interval: Self.repeatInterval,
+            fireAt: Date(timeIntervalSinceNow: pace.delay), interval: pace.interval,
             target: self, selector: #selector(repeatFired), userInfo: nil, repeats: true
         )
         RunLoop.main.add(timer, forMode: .common)

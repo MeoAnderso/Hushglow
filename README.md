@@ -19,10 +19,11 @@ How it is built, and what has been verified, is in [docs/DESIGN.md](docs/DESIGN.
 | Volume up / down | `Ctrl+Alt+Right` / `Ctrl+Alt+Left` |
 | Mute | `Ctrl+Alt+End` |
 
-Holding a shortcut keeps stepping. The menu bar item has sliders with a mute button for the
-mouse, and an indicator appears under it as you change a level. The indicator also tells
-you when there is nothing to control, and when the display refuses a change (some picture
-modes lock brightness).
+Holding a shortcut keeps stepping, at the pace of the keyboard's own key repeat (System
+Settings → Keyboard). The menu bar item has sliders with a mute button for the mouse, and
+an indicator appears under it as you change a level. The indicator also tells you when
+there is nothing to control, and when the display refuses a change (some picture modes
+lock brightness).
 
 A keyboard's own volume and brightness keys work too, if it has them and macOS receives
 them. That needs the app to be switched on in System Settings → Privacy & Security, in the

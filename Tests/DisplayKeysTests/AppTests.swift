@@ -367,6 +367,26 @@ private func keyPress(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) th
     }
 }
 
+@MainActor
+@Suite struct ShortcutRepeatTests {
+    /// A held shortcut repeats as any held key does, at the pace set in System Settings.
+    @Test func aHeldShortcutRepeatsAtTheKeyboardsOwnPace() {
+        #expect(Hotkeys.repeatPace(delay: 0.5, interval: 0.25) == Hotkeys.RepeatPace(delay: 0.5, interval: 0.25))
+        // The slowest pace System Settings offers is still a pace.
+        #expect(Hotkeys.repeatPace(delay: 2, interval: 2) == Hotkeys.RepeatPace(delay: 2, interval: 2))
+        // With key repeat switched off there, an interval of more than an hour is reported.
+        #expect(Hotkeys.repeatPace(delay: 0.5, interval: 5000) == nil)
+        // Values that no setting produces do not send a shortcut across the range in an instant.
+        let shortest = Hotkeys.shortestRepeatInterval
+        #expect(Hotkeys.repeatPace(delay: 0, interval: 0) == Hotkeys.RepeatPace(delay: shortest, interval: shortest))
+
+        // Whatever this Mac is set to is taken as it is.
+        let own = Hotkeys.repeatPace()
+        #expect(own == Hotkeys.repeatPace(delay: NSEvent.keyRepeatDelay, interval: NSEvent.keyRepeatInterval))
+        if let own { #expect(own.interval >= shortest && own.delay >= own.interval) }
+    }
+}
+
 /// Whether two parts of a view overlap, or one reaches outside it. The faint panel behind a
 /// group of rows is meant to lie under them, and so is the helper's glow.
 @MainActor
