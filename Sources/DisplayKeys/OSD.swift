@@ -420,7 +420,7 @@ final class OSDView: NSView {
     /// that a quarter step lights a quarter of a segment, and the gaps count for nothing. A
     /// whole number of segments ends with the last of them: the lit layer's halo would
     /// otherwise fall on the segment after it.
-    func litWidth(for fraction: CGFloat) -> CGFloat {
+    private func litWidth(for fraction: CGFloat) -> CGFloat {
         let filled = fraction * CGFloat(Self.segmentCount)
         let whole = filled.rounded(.down)
         let pitch = segmentWidth + Self.segmentGap
