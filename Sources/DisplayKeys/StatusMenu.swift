@@ -61,6 +61,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controls?.update()
     }
 
+    /// Called when a key, a shortcut or the command line has changed a level.
+    func levelsChanged() {
+        controls?.levelsChanged()
+    }
+
     private func build(_ menu: NSMenu) -> MenuControls {
         let controls = MenuControls(host: host)
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
@@ -143,6 +148,13 @@ final class MenuControls: NSObject {
         accessItem.isHidden = host.keyboardKeysAreActive
         hintItem.attributedTitle = Self.hint()
         hintItem.isHidden = hintItem.attributedTitle?.length == 0
+    }
+
+    /// A level was changed from outside the menu: by a key, a shortcut or the command line.
+    /// Rows that are on screen follow at once. With the menu closed they are in no window and
+    /// there is nothing to do, since everything is brought up to date when the menu opens.
+    func levelsChanged() {
+        if brightnessRow.window != nil || volumeRow.window != nil { update() }
     }
 
     private func updateMuteButton() {

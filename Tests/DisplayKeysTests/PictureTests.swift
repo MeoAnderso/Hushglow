@@ -419,6 +419,8 @@ private final class MenuSession: NSObject {
     /// The most the heap grew by while the drag went on, in bytes.
     private(set) var growth = 0
     private(set) var dragEnded = false
+    /// Whether the open menu showed a level that was changed elsewhere, as by a key.
+    private(set) var followedAChange = false
 
     private let menu = NSMenu()
     private let backdrop: NSWindow
@@ -476,6 +478,9 @@ private final class MenuSession: NSObject {
             menuWidth = window.frame.width
             rowWidth = row.frame.width
             picture = try? photograph([window, backdrop], size: backdrop.frame.size, withShadows: false)
+            host.displayState = StubMenuHost(brightness: 50, volume: 70).displayState
+            controls.levelsChanged()
+            followedAChange = controls.volumeRow.slider.value == 70
             origin = row.slider.convert(NSPoint.zero, to: nil)
             heapBefore = heapInUse()
             return post(.leftMouseDown, at: width / 2)
@@ -527,6 +532,10 @@ private final class MenuSession: NSObject {
                     // wider than they ask for.
                     let rowWidth = try #require(session.rowWidth)
                     #expect(rowWidth == session.menuWidth)
+                    // A level changed by a key while the menu was open showed in its row. Now
+                    // that it is closed, the rows are in no window and are left alone.
+                    #expect(session.followedAChange, "the open menu did not show a level changed elsewhere")
+                    #expect(session.controls.volumeRow.window == nil)
                     // 4,000 events end where they began, at the left end, with every move passed on.
                     #expect(session.dragEnded, "the menu closed before the drag was over")
                     #expect(session.controls.brightnessRow.slider.value == 0)

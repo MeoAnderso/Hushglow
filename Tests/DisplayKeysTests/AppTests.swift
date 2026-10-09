@@ -819,6 +819,29 @@ final class StubMenuHost: StatusMenuHost {
         #expect(slider.value == 80 && label(of: controls.brightnessRow) == "80%")
     }
 
+    /// A key pressed while the menu is open changes the display, and the menu has to show it.
+    /// A closed menu need not: it is brought up to date when it opens.
+    @Test func rowsOnScreenFollowALevelChangedElsewhere() {
+        let host = StubMenuHost(brightness: 50, volume: 30)
+        let controls = MenuControls(host: host)
+        controls.update()
+
+        host.displayState = StubMenuHost(brightness: 80, volume: 60, muted: true).displayState
+        controls.levelsChanged()
+        #expect(label(of: controls.brightnessRow) == "50%" && label(of: controls.volumeRow) == "30%")
+
+        // In a window, as the rows of an open menu are.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 60), styleMask: [.borderless], backing: .buffered,
+            defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(controls.volumeRow)
+        controls.levelsChanged()
+        #expect(label(of: controls.brightnessRow) == "80%" && label(of: controls.volumeRow) == "60%")
+        #expect(controls.volumeRow.slider.value == 60)
+        #expect(controls.showsMuted && controls.volumeRow.button?.accessibilityLabel() == "Unmute")
+    }
+
     /// As with macOS's own volume slider, a muted one can still be moved, and moving it unmutes.
     @Test func movingTheVolumeSliderWhileMutedUnmutes() {
         let host = StubMenuHost(muted: true)

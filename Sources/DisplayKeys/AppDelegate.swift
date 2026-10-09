@@ -107,7 +107,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             return
         }
         displays.apply(command) { [unowned self] feedback, isFinal in
+            // What the menu asks for stops here. Its sliders are ahead of the display as it
+            // is, and are not to be moved under the mouse.
             guard showOSD else { return }
+            // An open menu shows what a key did, as the indicator does.
+            if isFinal { statusMenu?.levelsChanged() }
             if let feedback {
                 indicate(.level(feedback))
             } else if isFinal {
