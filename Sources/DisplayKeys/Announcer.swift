@@ -12,7 +12,9 @@ final class Announcer: NSObject {
         guard NSWorkspace.shared.isVoiceOverEnabled else { return }
         pending = indication.spoken
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(speak), object: nil)
-        perform(#selector(speak), with: nil, afterDelay: Self.settleDelay)
+        // In every mode of the run loop, so that a level changed while a menu is open is
+        // spoken then, not when the menu closes.
+        perform(#selector(speak), with: nil, afterDelay: Self.settleDelay, inModes: [.common])
     }
 
     @objc private func speak() {

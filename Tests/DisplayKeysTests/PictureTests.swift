@@ -241,6 +241,25 @@ extension GlassWindowTests {
         #expect(!osd.isOnScreen)
     }
 
+    /// An open menu keeps the main run loop in its event-tracking mode, and whatever is
+    /// scheduled for the default mode alone waits until the menu closes. An indicator that a
+    /// key brings up meanwhile has to leave on time all the same. Runs only when PREVIEW_DIR
+    /// is set, since it shows the indicator.
+    @Test func leavesOnTimeWhileAMenuIsOpen() {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let osd = OSD()
+        osd.show(.level(Feedback(kind: .volume, fraction: 0.5)))
+        #expect(osd.isOnScreen)
+
+        // The run loop as a menu runs it. The indicator stays for a second and a half and fades.
+        let limit = Date(timeIntervalSinceNow: 5)
+        while osd.isOnScreen, Date() < limit {
+            RunLoop.main.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        #expect(!osd.isOnScreen)
+    }
+
     /// A picture of the bar part of the way between two levels. Nothing in this process moves
     /// it there: the view is not asked to draw and no timer of the app's runs. The indicator's
     /// clock is slowed twenty times, so that the middle of an eighth of a second can be caught

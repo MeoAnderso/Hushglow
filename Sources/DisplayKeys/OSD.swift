@@ -89,8 +89,16 @@ final class OSD: NSObject {
                 panel.animator().setFrame(frame, display: true)
             }
         }
-        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(timeIsUp), object: nil)
-        if indication != held { perform(#selector(timeIsUp), with: nil, afterDelay: Self.visibleDuration) }
+        // Whatever was due for what was shown before is off, the end of its fade included.
+        NSObject.cancelPreviousPerformRequests(withTarget: self)
+        if indication != held { leave(#selector(timeIsUp), after: Self.visibleDuration) }
+    }
+
+    /// Schedules a step of the indicator's leaving. It is scheduled for every mode of the
+    /// run loop: an open menu keeps the run loop out of the default one, and an indicator
+    /// that a key brought up meanwhile would otherwise stay until the menu closed.
+    private func leave(_ step: Selector, after delay: TimeInterval) {
+        perform(step, with: nil, afterDelay: delay, inModes: [.common])
     }
 
     /// The indication has been on screen long enough.
@@ -100,17 +108,18 @@ final class OSD: NSObject {
 
     private func fadeOut() {
         guard let panel else { return }
-        NSAnimationContext.runAnimationGroup(
-            { context in
-                context.duration = Self.fadeDuration
-                panel.animator().alphaValue = 0
-            },
-            completionHandler: {
-                MainActor.assumeIsolated {
-                    // A key press during the fade brings the panel back; leave it on screen then.
-                    if panel.alphaValue == 0 { panel.orderOut(nil) }
-                }
-            })
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.fadeDuration
+            panel.animator().alphaValue = 0
+        }
+        // The panel is taken away when the fade is over, unless something is shown before
+        // then, which calls this off. The animation's own completion handler would do, but
+        // with a menu open it is not called until the menu closes.
+        leave(#selector(fadeIsOver), after: Self.fadeDuration)
+    }
+
+    @objc private func fadeIsOver() {
+        panel?.orderOut(nil)
     }
 
     /// Under the menu bar item when that is asked for and its position is known, as macOS does
