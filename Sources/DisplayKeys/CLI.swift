@@ -22,7 +22,9 @@ enum CLI {
           DisplayKeys get brightness|volume|mute
           DisplayKeys shortcut                          list shortcuts
           DisplayKeys shortcut <action> <keys|none|default>   for example: brightness-up ctrl+alt+up
-          DisplayKeys shortcut quarter-steps on|off     also register each stepping shortcut with Shift
+          DisplayKeys shortcut quarter-steps on|off|cmd|shift|alt|ctrl
+                                                        also register each stepping shortcut with that
+                                                        modifier added, Cmd unless another is named
           DisplayKeys status                            what the running app sees and has received
           DisplayKeys watch-keys [seconds]              show which special keys reach the app
           DisplayKeys doctor [--write-test] [--key-test]   check the display connection and the key path
@@ -98,13 +100,24 @@ enum CLI {
             for action in Shortcut.Action.allCases {
                 print("\(action.rawValue): \(ShortcutSettings.text(for: action) ?? "none")")
             }
-            return succeed("\(quarterStepsWord): \(ShortcutSettings.quarterSteps ? "on" : "off")")
+            let modifier = ShortcutSettings.quarterStepModifier.name ?? ""
+            return succeed("\(quarterStepsWord): \(ShortcutSettings.quarterSteps ? "on" : "off"), with \(modifier)")
         }
         guard arguments.count == 2 else { return fail(usage, status: 64) }
 
         if arguments[0] == quarterStepsWord {
-            guard ["on", "off"].contains(arguments[1]) else { return fail(usage, status: 64) }
-            ShortcutSettings.quarterSteps = arguments[1] == "on"
+            let named = Shortcut.Modifiers(name: arguments[1])
+            guard ["on", "off"].contains(arguments[1]) || named != nil else { return fail(usage, status: 64) }
+            let modifier = named ?? ShortcutSettings.quarterStepModifier
+            if arguments[1] != "off",
+                let clash = Shortcut.firstClash(among: ShortcutSettings.shortcuts, quarterStep: modifier)
+            {
+                return fail(
+                    "With \(modifier.title ?? "that") for quarter steps, \(clash.action.rawValue) and "
+                        + "\(clash.other.rawValue) would both take \(clash.keys.text).", status: 64)
+            }
+            ShortcutSettings.quarterStepModifier = modifier
+            ShortcutSettings.quarterSteps = arguments[1] != "off"
         } else if let action = Shortcut.Action(rawValue: arguments[0]) {
             switch arguments[1] {
             case "default":
@@ -119,7 +132,7 @@ enum CLI {
                 }
                 switch Shortcut.check(
                     parsed, for: action, others: ShortcutSettings.shortcuts,
-                    quarterSteps: ShortcutSettings.quarterSteps, isUsedBySystem: Hotkeys.usedByMacOS().contains)
+                    quarterStep: ShortcutSettings.quarterStep, isUsedBySystem: Hotkeys.usedByMacOS().contains)
                 {
                 case .needsModifier:
                     return fail(
@@ -306,7 +319,9 @@ enum CLI {
 
         lines.append("Shortcuts:" + (status.shortcuts.isEmpty ? " none registered" : ""))
         lines += status.shortcuts.map { "  " + describe($0) }
-        lines.append("Quarter steps with Shift: \(status.quarterSteps ? "on" : "off")")
+        // A build from before the modifier could be chosen used Shift.
+        let modifier = status.quarterStepModifier.flatMap(Shortcut.Modifiers.init(name:))?.title ?? "Shift"
+        lines.append("Quarter steps: \(status.quarterSteps ? "on" : "off"), with \(modifier)")
 
         let input = status.input
         lines.append(

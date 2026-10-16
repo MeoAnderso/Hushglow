@@ -45,6 +45,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// Why the last recorded shortcut was turned down; shown until the next attempt.
     private var rejectionText: String?
     private var quarterStepsBox: NSButton?
+    private var quarterStepPopup: NSPopUpButton?
     private var keysStatus: NSTextField?
     private var keysButton: NSButton?
     private var askBox: NSButton?
@@ -189,14 +190,22 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             controls[action] = control
             shortcutRows.append((action.title, [control]))
         }
-        let quarterStepsBox = checkbox(
-            "Also register each with Shift, for quarter steps", #selector(quarterStepsChanged))
+        let quarterStepsBox = checkbox("Quarter steps with", #selector(quarterStepsChanged))
         self.quarterStepsBox = quarterStepsBox
+        let quarterStepPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        quarterStepPopup.addItems(
+            withTitles: Shortcut.Modifiers.quarterStepChoices.map { "\($0.symbols) \($0.title ?? "")" })
+        quarterStepPopup.target = self
+        quarterStepPopup.action = #selector(quarterStepsChanged)
+        quarterStepPopup.setAccessibilityLabel("Modifier for quarter steps")
+        self.quarterStepPopup = quarterStepPopup
+        let quarterStepRow = Layout.row(
+            [quarterStepsBox, quarterStepPopup, NSTextField(labelWithString: "added to a shortcut")], spacing: 6)
         // Takes room only while it has something to say.
         let message = note()
         message.isHidden = true
         self.message = message
-        let shortcuts = section("Shortcuts", [form(shortcutRows, spacing: 6), quarterStepsBox, message])
+        let shortcuts = section("Shortcuts", [form(shortcutRows, spacing: 6), quarterStepRow, message])
 
         let keysStatus = note()
         self.keysStatus = keysStatus
@@ -241,9 +250,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         for (action, control) in controls {
             control.shortcut = ShortcutSettings.shortcut(for: action)
-            control.defaultShortcut = action.defaultShortcut.flatMap(Shortcut.init)
+            control.defaultShortcut = ShortcutSettings.defaultShortcut(for: action)
         }
         quarterStepsBox?.state = ShortcutSettings.quarterSteps ? .on : .off
+        quarterStepPopup?.selectItem(
+            at: Shortcut.Modifiers.quarterStepChoices.firstIndex(of: ShortcutSettings.quarterStepModifier) ?? 0)
+        quarterStepPopup?.isEnabled = ShortcutSettings.quarterSteps
 
         let isActive = host.keyboardKeysAreActive
         keysStatus?.stringValue =
@@ -289,7 +301,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         var clashing: [Shortcut] = []
         for action in Shortcut.Action.allCases {
             guard let shortcut = ShortcutSettings.shortcut(for: action) else { continue }
-            clashing += shortcut.claimed(for: action, quarterSteps: ShortcutSettings.quarterSteps)
+            clashing += shortcut.claimed(for: action, quarterStep: ShortcutSettings.quarterStep)
                 .filter(system.contains)
         }
         guard !clashing.isEmpty else { return nil }
@@ -303,7 +315,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// Why a recorded shortcut cannot be used for an action, in words; nil when it can.
     private func rejection(of shortcut: Shortcut?, for action: Shortcut.Action) -> String? {
         switch Shortcut.check(
-            shortcut, for: action, others: ShortcutSettings.shortcuts, quarterSteps: ShortcutSettings.quarterSteps,
+            shortcut, for: action, others: ShortcutSettings.shortcuts, quarterStep: ShortcutSettings.quarterStep,
             isUsedBySystem: host.shortcutsUsedByMacOS.contains)
         {
         case .usedBySystem:
@@ -337,7 +349,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// Gives an action its default shortcut again, unless another action has taken those keys
     /// meanwhile or something else stands in the way; then it says why, as for keys pressed.
     private func putBackDefault(for action: Shortcut.Action) {
-        let shortcut = action.defaultShortcut.flatMap(Shortcut.init)
+        let shortcut = ShortcutSettings.defaultShortcut(for: action)
         if let reason = rejection(of: shortcut, for: action) { return show(message: reason) }
         ShortcutSettings.set(nil, for: action)
         show(message: nil)
@@ -345,10 +357,28 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         applyShortcuts()
     }
 
-    @objc private func quarterStepsChanged(_ sender: NSButton) {
-        ShortcutSettings.quarterSteps = sender.state == .on
+    /// Takes the checkbox and the modifier together. A choice under which two actions would
+    /// take the same keys is turned down, and the controls go back to what is stored.
+    @objc private func quarterStepsChanged() {
+        let isOn = quarterStepsBox?.state == .on
+        let choices = Shortcut.Modifiers.quarterStepChoices
+        let modifier = quarterStepPopup.map { choices[max($0.indexOfSelectedItem, 0)] } ?? .command
+        if isOn, let clash = Shortcut.firstClash(among: ShortcutSettings.shortcuts, quarterStep: modifier) {
+            show(message: Self.quarterStepClash(clash, modifier: modifier))
+            return reload()
+        }
+        ShortcutSettings.quarterStepModifier = modifier
+        ShortcutSettings.quarterSteps = isOn
         show(message: nil)
+        reload()
         applyShortcuts()
+    }
+
+    static func quarterStepClash(
+        _ clash: (action: Shortcut.Action, other: Shortcut.Action, keys: Shortcut), modifier: Shortcut.Modifiers
+    ) -> String {
+        "With \(modifier.title ?? "that") added, \(clash.action.title) and \(clash.other.title) would both take "
+            + "\(clash.keys.symbols). Choose another modifier, or change one of those shortcuts."
     }
 
     // MARK: Other settings
@@ -400,7 +430,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let alert = NSAlert()
         alert.messageText = "Restore the default settings?"
         alert.informativeText =
-            "The shortcuts and the indicator go back to how they were at first. The \(KeyboardKeys.phrase) "
+            "The shortcuts and the indicator go back to their defaults. The \(KeyboardKeys.phrase) "
             + "and launch at login stay as they are."
         alert.addButton(withTitle: "Restore Defaults")
         alert.addButton(withTitle: "Cancel")
@@ -411,6 +441,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private func restoreDefaults() {
         for action in Shortcut.Action.allCases { ShortcutSettings.set(nil, for: action) }
         ShortcutSettings.quarterSteps = false
+        ShortcutSettings.quarterStepModifier = .command
+        ShortcutSettings.chooseDefaultSetAfresh()
         IndicatorSettings.style = .glass
         IndicatorSettings.position = .underMenuBarIcon
         IndicatorSettings.showsPercentage = false

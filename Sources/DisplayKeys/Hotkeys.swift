@@ -42,16 +42,16 @@ final class Hotkeys: NSObject {
     }
 
     /// Registers the configured shortcuts, replacing any earlier registration. With quarter
-    /// steps switched on, each stepping shortcut is also registered with Shift added.
+    /// steps switched on, each stepping shortcut is also registered with their modifier added.
     func reload() {
         unregisterAll()
         installEventHandler()
-        let quarterSteps = ShortcutSettings.quarterSteps
+        let quarterStep = ShortcutSettings.quarterStep
         let system = Self.usedByMacOS()
         for (index, action) in Shortcut.Action.allCases.enumerated() {
             guard let shortcut = ShortcutSettings.shortcut(for: action) else { continue }
             // The shortcut itself, then the one for quarter steps when there is one.
-            for (offset, keys) in shortcut.claimed(for: action, quarterSteps: quarterSteps).enumerated() {
+            for (offset, keys) in shortcut.claimed(for: action, quarterStep: quarterStep).enumerated() {
                 register(keys, id: UInt32(index * 2 + offset), action: action, fine: offset == 1, system: system)
             }
         }
@@ -106,10 +106,10 @@ final class Hotkeys: NSObject {
     /// Which action a shortcut stands for, and whether as a quarter step, given every action's
     /// shortcut. It answers for a key press what registering does for a hot key.
     static func binding(
-        for shortcut: Shortcut, among shortcuts: [Shortcut.Action: Shortcut], quarterSteps: Bool
+        for shortcut: Shortcut, among shortcuts: [Shortcut.Action: Shortcut], quarterStep: Shortcut.Modifiers?
     ) -> (action: Shortcut.Action, fine: Bool)? {
         for action in Shortcut.Action.allCases {
-            guard let claimed = shortcuts[action]?.claimed(for: action, quarterSteps: quarterSteps),
+            guard let claimed = shortcuts[action]?.claimed(for: action, quarterStep: quarterStep),
                 let index = claimed.firstIndex(of: shortcut)
             else { continue }
             return (action, index == 1)

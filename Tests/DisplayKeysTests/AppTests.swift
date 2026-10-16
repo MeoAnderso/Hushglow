@@ -174,8 +174,8 @@ private func keyPress(
 
 /// A press of a shortcut's keys.
 @MainActor
-private func keyPress(_ shortcut: Shortcut, addingShift: Bool = false, isRepeat: Bool = false) throws -> NSEvent {
-    var flags: NSEvent.ModifierFlags = addingShift ? [.shift] : []
+private func keyPress(_ shortcut: Shortcut, isRepeat: Bool = false) throws -> NSEvent {
+    var flags: NSEvent.ModifierFlags = []
     if shortcut.modifiers.contains(.control) { flags.insert(.control) }
     if shortcut.modifiers.contains(.option) { flags.insert(.option) }
     if shortcut.modifiers.contains(.shift) { flags.insert(.shift) }
@@ -438,6 +438,32 @@ func descendants(of view: NSView) -> [NSView] {
         }
     }
 
+    /// Quarter steps take a modifier of the user's choosing, Cmd first. Its menu is in use only
+    /// while quarter steps are on. A choice under which two actions would take the same keys is
+    /// turned down in words.
+    @Test func quarterStepsTakeAModifierOfTheUsersChoosing() throws {
+        let host = StubHost()
+        let settings = SettingsWindow(host: host)
+        let content = settings.makeContentView()
+        let popup = try #require(
+            descendants(of: content).compactMap { $0 as? NSPopUpButton }
+                .first { $0.accessibilityLabel() == "Modifier for quarter steps" })
+        #expect(popup.itemTitles == ["⌘ Cmd", "⇧ Shift", "⌥ Alt", "⌃ Ctrl"])
+        #expect(popup.isEnabled == ShortcutSettings.quarterSteps)
+        let choices = Shortcut.Modifiers.quarterStepChoices
+        #expect(popup.titleOfSelectedItem?.hasSuffix(ShortcutSettings.quarterStepModifier.title ?? "?") == true)
+        #expect(choices.count == popup.numberOfItems)
+
+        let clash = (
+            action: Shortcut.Action.brightnessUp, other: Shortcut.Action.volumeDown, keys: Shortcut("ctrl+alt+cmd+up")!
+        )
+        #expect(
+            SettingsWindow.quarterStepClash(clash, modifier: .command)
+                == "With Cmd added, Brightness up and Volume down would both take ⌃⌥⌘↑. Choose another modifier, "
+                + "or change one of those shortcuts.")
+        withExtendedLifetime((host, settings)) {}
+    }
+
     @Test func readsEveryActionsShortcutFromTheSettings() {
         for action in Shortcut.Action.allCases {
             let shortcut = ShortcutSettings.text(for: action).flatMap(Shortcut.init)
@@ -519,18 +545,20 @@ func descendants(of view: NSView) -> [NSView] {
         let shortcuts: [Shortcut.Action: Shortcut] = [
             .brightnessUp: try #require(Shortcut("ctrl+alt+up")), .mute: try #require(Shortcut("f15")),
         ]
-        func binding(_ text: String, quarterSteps: Bool) throws -> String? {
-            Hotkeys.binding(for: try #require(Shortcut(text)), among: shortcuts, quarterSteps: quarterSteps)
+        func binding(_ text: String, quarterStep: Shortcut.Modifiers?) throws -> String? {
+            Hotkeys.binding(for: try #require(Shortcut(text)), among: shortcuts, quarterStep: quarterStep)
                 .map { "\($0.action.rawValue)\($0.fine ? ", fine" : "")" }
         }
-        #expect(try binding("ctrl+alt+up", quarterSteps: false) == "brightness-up")
-        #expect(try binding("f15", quarterSteps: true) == "mute")
-        // The Shift variant is a quarter step only where quarter steps are switched on, and
-        // only for an action that steps.
-        #expect(try binding("ctrl+alt+shift+up", quarterSteps: true) == "brightness-up, fine")
-        #expect(try binding("ctrl+alt+shift+up", quarterSteps: false) == nil)
-        #expect(try binding("shift+f15", quarterSteps: true) == nil)
-        #expect(try binding("ctrl+alt+down", quarterSteps: true) == nil)
+        #expect(try binding("ctrl+alt+up", quarterStep: nil) == "brightness-up")
+        #expect(try binding("f15", quarterStep: .command) == "mute")
+        // The keys with the modifier are a quarter step only where quarter steps are switched
+        // on, with that modifier, and only for an action that steps.
+        #expect(try binding("ctrl+alt+cmd+up", quarterStep: .command) == "brightness-up, fine")
+        #expect(try binding("ctrl+alt+shift+up", quarterStep: .shift) == "brightness-up, fine")
+        #expect(try binding("ctrl+alt+shift+up", quarterStep: .command) == nil)
+        #expect(try binding("ctrl+alt+cmd+up", quarterStep: nil) == nil)
+        #expect(try binding("cmd+f15", quarterStep: .command) == nil)
+        #expect(try binding("ctrl+alt+down", quarterStep: .command) == nil)
     }
 
     @Test func aKeyPressAmountsToAShortcut() throws {
@@ -561,10 +589,11 @@ func descendants(of view: NSView) -> [NSView] {
         #expect(commands == [action.command(fine: false), action.command(fine: false)])
         #expect(keyboard.input.shortcutPresses == 2)
 
-        // With Shift it is a quarter step where those are switched on, and the menu's otherwise.
-        if !shortcut.modifiers.contains(.shift) {
+        // With the quarter-step modifier it is a quarter step where those are switched on, and
+        // the menu's otherwise.
+        if let quarter = shortcut.adding(ShortcutSettings.quarterStepModifier) {
             let isOn = ShortcutSettings.quarterSteps
-            #expect(keyboard.takeShortcut(from: try keyPress(shortcut, addingShift: true)) == isOn)
+            #expect(keyboard.takeShortcut(from: try keyPress(quarter)) == isOn)
             #expect(commands.count == (isOn ? 3 : 2))
             if isOn { #expect(commands.last == action.command(fine: true)) }
         }
@@ -665,9 +694,25 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
             let content = WelcomeWindow(onTurnOn: {}, onDontAsk: {})
                 .makeContentView(occasion, keysAreActive: keysAreActive)
             let texts = descendants(of: content).compactMap { ($0 as? NSTextField)?.stringValue }
-            #expect(texts.contains { $0.hasPrefix("You can also change them, if you want.") })
+            #expect(texts.contains { $0.contains("You can also change them, if you want.") })
             #expect(descendants(of: content).contains { $0 is WellView })
         }
+    }
+
+    /// When a window manager has the arrows, the first launch says why the shortcuts are on the
+    /// function keys, and on an Apple keyboard whose top row sends brightness and volume, that
+    /// fn is needed with them.
+    @Test func saysWhyTheShortcutsAreOnTheFunctionKeys() {
+        #expect(WelcomeWindow.whyFunctionKeys(set: .arrows, managers: ["Rectangle"]) == nil)
+        #expect(WelcomeWindow.whyFunctionKeys(set: .functionKeys, managers: []) == nil)
+        #expect(
+            WelcomeWindow.whyFunctionKeys(set: .functionKeys, managers: ["Rectangle"], functionKeysAreStandard: true)
+                == "Rectangle uses Ctrl+Alt with the arrow keys, so these are on the function keys.")
+        #expect(
+            WelcomeWindow.whyFunctionKeys(
+                set: .functionKeys, managers: ["Rectangle", "Magnet"], functionKeysAreStandard: false)
+                == "Rectangle and Magnet use Ctrl+Alt with the arrow keys, so these are on the function keys. "
+                + "On an Apple keyboard, hold fn with them.")
     }
 
     /// macOS 27 renamed the list, and the notices have to send people to the right one.

@@ -101,7 +101,7 @@ final class KeyboardInput {
     func takeShortcut(from event: NSEvent) -> Bool {
         guard menuIsOpen, let shortcut = Shortcut(keyPress: event),
             let binding = Hotkeys.binding(
-                for: shortcut, among: ShortcutSettings.shortcuts, quarterSteps: ShortcutSettings.quarterSteps)
+                for: shortcut, among: ShortcutSettings.shortcuts, quarterStep: ShortcutSettings.quarterStep)
         else { return false }
         // A held key repeats by itself here, at the keyboard's own pace. Mute does not repeat.
         if !event.isARepeat || binding.action.repeatsWhileHeld { shortcutPressed(binding.action, fine: binding.fine) }

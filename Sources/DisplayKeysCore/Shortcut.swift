@@ -16,6 +16,55 @@ public struct Shortcut: Equatable, Sendable {
         public var symbols: String {
             Shortcut.modifierOrder.filter { contains($0.modifier) }.map(\.symbol).joined()
         }
+
+        /// One modifier by the name used in settings and on the command line, such as `cmd`.
+        public init?(name: String) {
+            guard let modifier = Shortcut.modifierNames[name.lowercased()] else { return nil }
+            self = modifier
+        }
+
+        /// The name of a single modifier, such as `cmd`; nil for none or several.
+        public var name: String? {
+            Shortcut.modifierOrder.first { $0.modifier == self }?.name
+        }
+
+        /// The name of a single modifier as the app writes it for people, such as `Cmd`.
+        public var title: String? { name?.capitalized }
+
+        /// The modifiers a quarter step can add, in the order they are offered. Cmd comes first
+        /// and is the default: with the default shortcuts, macOS uses Ctrl+Alt+Shift with the
+        /// arrows itself.
+        public static let quarterStepChoices: [Modifiers] = [.command, .shift, .option, .control]
+    }
+
+    /// The shortcuts a fresh install starts with. Both work on any keyboard, including ones
+    /// without brightness or volume keys.
+    public enum DefaultSet: String, CaseIterable, Sendable {
+        /// Ctrl+Alt with the arrows, and with End for mute: easy to reach on every keyboard.
+        case arrows
+        /// Ctrl+Alt with F1 and F2 for brightness, F11 and F12 for volume and F10 for mute,
+        /// where Apple's keyboards have those functions. For a Mac with a window manager that
+        /// uses Ctrl+Alt with the arrows itself.
+        case functionKeys
+
+        public func text(for action: Action) -> String {
+            switch (self, action) {
+            case (.arrows, .brightnessUp): "ctrl+alt+up"
+            case (.arrows, .brightnessDown): "ctrl+alt+down"
+            case (.arrows, .volumeUp): "ctrl+alt+right"
+            case (.arrows, .volumeDown): "ctrl+alt+left"
+            case (.arrows, .mute): "ctrl+alt+end"
+            case (.functionKeys, .brightnessUp): "ctrl+alt+f2"
+            case (.functionKeys, .brightnessDown): "ctrl+alt+f1"
+            case (.functionKeys, .volumeUp): "ctrl+alt+f12"
+            case (.functionKeys, .volumeDown): "ctrl+alt+f11"
+            case (.functionKeys, .mute): "ctrl+alt+f10"
+            }
+        }
+
+        public func shortcut(for action: Action) -> Shortcut? {
+            Shortcut(text(for: action))
+        }
     }
 
     /// The actions a shortcut can be bound to, by the name used in settings and on the command line.
@@ -25,18 +74,6 @@ public struct Shortcut: Equatable, Sendable {
         case volumeUp = "volume-up"
         case volumeDown = "volume-down"
         case mute
-
-        /// The shortcuts a fresh install starts with. They work on any keyboard, including
-        /// ones without brightness or volume keys.
-        public var defaultShortcut: String? {
-            switch self {
-            case .brightnessUp: "ctrl+alt+up"
-            case .brightnessDown: "ctrl+alt+down"
-            case .volumeUp: "ctrl+alt+right"
-            case .volumeDown: "ctrl+alt+left"
-            case .mute: "ctrl+alt+end"
-            }
-        }
 
         public var title: String {
             switch self {
@@ -107,34 +144,52 @@ public struct Shortcut: Equatable, Sendable {
     /// Checks a shortcut chosen for an action against the shortcuts of the other actions and
     /// those of macOS. `shortcut` is nil when the pressed key is not one a shortcut can use.
     /// `others` may hold the action's own shortcut too; it is not counted against itself.
-    /// With quarter steps on, each stepping shortcut also claims its Shift variant.
+    /// With quarter steps on, `quarterStep` is the modifier they add, and each stepping
+    /// shortcut also claims the same keys with it.
     public static func check(
-        _ shortcut: Shortcut?, for action: Action, others: [Action: Shortcut], quarterSteps: Bool,
+        _ shortcut: Shortcut?, for action: Action, others: [Action: Shortcut], quarterStep: Modifiers?,
         isUsedBySystem: (Shortcut) -> Bool = { _ in false }
     ) -> Rejection? {
         guard let shortcut else { return .unsupportedKey }
         guard shortcut.isUsable else { return .needsModifier }
-        let wanted = shortcut.claimed(for: action, quarterSteps: quarterSteps)
+        let wanted = shortcut.claimed(for: action, quarterStep: quarterStep)
         for other in Action.allCases where other != action {
             guard let taken = others[other] else { continue }
-            if taken.claimed(for: other, quarterSteps: quarterSteps).contains(where: wanted.contains) {
+            if taken.claimed(for: other, quarterStep: quarterStep).contains(where: wanted.contains) {
                 return .usedBy(other)
             }
         }
         return isUsedBySystem(shortcut) ? .usedBySystem : nil
     }
 
+    /// Two actions that would claim the same keys, and those keys, were quarter steps taken
+    /// with `quarterStep`; nil when no two would. For checking a change to quarter steps
+    /// before it is made.
+    public static func firstClash(
+        among shortcuts: [Action: Shortcut], quarterStep: Modifiers?
+    ) -> (action: Action, other: Action, keys: Shortcut)? {
+        let actions = Action.allCases.filter { shortcuts[$0] != nil }
+        for (index, action) in actions.enumerated() {
+            let claimed = shortcuts[action]!.claimed(for: action, quarterStep: quarterStep)
+            for other in actions[(index + 1)...] {
+                let taken = shortcuts[other]!.claimed(for: other, quarterStep: quarterStep)
+                if let keys = claimed.first(where: taken.contains) { return (action, other, keys) }
+            }
+        }
+        return nil
+    }
+
     /// The keys the shortcut takes when it is given to an action: itself and, with quarter
-    /// steps on and for an action that steps, the same keys with Shift.
-    public func claimed(for action: Action, quarterSteps: Bool) -> [Shortcut] {
-        guard quarterSteps, action.repeatsWhileHeld, let quarter = quarterStepVariant else { return [self] }
+    /// steps on and for an action that steps, the same keys with the quarter-step modifier.
+    public func claimed(for action: Action, quarterStep: Modifiers?) -> [Shortcut] {
+        guard let quarterStep, action.repeatsWhileHeld, let quarter = adding(quarterStep) else { return [self] }
         return [self, quarter]
     }
 
-    /// The same keys with Shift added, which is what a quarter step is registered on; nil when
-    /// Shift is already part of the shortcut.
-    public var quarterStepVariant: Shortcut? {
-        modifiers.contains(.shift) ? nil : Shortcut(keyCode: keyCode, modifiers: modifiers.union(.shift))
+    /// The same keys with a modifier added, which is what a quarter step is registered on; nil
+    /// when the modifier is already part of the shortcut.
+    public func adding(_ modifier: Modifiers) -> Shortcut? {
+        modifiers.isSuperset(of: modifier) ? nil : Shortcut(keyCode: keyCode, modifiers: modifiers.union(modifier))
     }
 
     /// Whether the shortcut is safe to claim system-wide. A bare arrow or page key would take
@@ -182,7 +237,7 @@ public struct Shortcut: Equatable, Sendable {
 
     private static let keySymbols: [String: String] = ["up": "↑", "down": "↓", "left": "←", "right": "→"]
 
-    private static let modifierNames: [String: Modifiers] = [
+    fileprivate static let modifierNames: [String: Modifiers] = [
         "cmd": .command, "command": .command,
         "shift": .shift,
         "alt": .option, "opt": .option, "option": .option,

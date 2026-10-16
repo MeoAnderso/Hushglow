@@ -86,10 +86,11 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         if let shortcuts = Self.shortcutList(width: inner) {
             add(text("Look for the sun in the menu bar. These shortcuts control your display:"), gap: 12)
             add(shortcuts, gap: 8)
+            let change = "You can also change them, if you want. Choose Settings… from the sun’s menu."
+            let why = occasion == .firstLaunch ? Self.whyFunctionKeys() : nil
             add(
-                text(
-                    "You can also change them, if you want. Choose Settings… from the sun’s menu.", size: 12,
-                    color: .secondaryLabelColor), gap: 14)
+                text([why, change].compactMap { $0 }.joined(separator: " "), size: 12, color: .secondaryLabelColor),
+                gap: 14)
         } else {
             add(text("Look for the sun in the menu bar."), gap: 12)
         }
@@ -109,6 +110,20 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         body.edgeInsets = NSEdgeInsets(
             top: GlassPanel.titleBarHeight + 6, left: 0, bottom: 14 + (parts.last?.gap ?? 0), right: 0)
         return GlassPanel.content(body, width: Self.width)
+    }
+
+    /// Why the shortcuts are on the function keys, when a window manager is the reason; nil
+    /// when they are not. Only the first launch says it, since that is when they were chosen.
+    static func whyFunctionKeys(
+        set: Shortcut.DefaultSet = ShortcutSettings.defaultSet, managers: [String] = WindowManagers.installed,
+        functionKeysAreStandard: Bool = UserDefaults.standard.bool(forKey: "com.apple.keyboard.fnState")
+    ) -> String? {
+        guard set == .functionKeys, !managers.isEmpty else { return nil }
+        let names = managers.joined(separator: " and ")
+        let uses = managers.count == 1 ? "uses" : "use"
+        // On an Apple keyboard the top row sends brightness and volume unless set otherwise.
+        let fn = functionKeysAreStandard ? "" : " On an Apple keyboard, hold fn with them."
+        return "\(names) \(uses) Ctrl+Alt with the arrow keys, so these are on the function keys.\(fn)"
     }
 
     /// What to say about the keyboard's own keys.

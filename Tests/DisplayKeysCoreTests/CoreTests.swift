@@ -311,11 +311,21 @@ import Testing
         #expect(Shortcut("") == nil)
     }
 
-    @Test func everyActionHasADistinctUsableDefault() {
-        let defaults = Shortcut.Action.allCases.compactMap(\.defaultShortcut)
-        #expect(defaults.count == Shortcut.Action.allCases.count)
-        #expect(Set(defaults).count == defaults.count)
-        for text in defaults { #expect(Shortcut(text)?.isUsable == true) }
+    @Test func everyActionHasADistinctUsableDefaultInEachSet() {
+        for set in Shortcut.DefaultSet.allCases {
+            let defaults = Shortcut.Action.allCases.compactMap(set.shortcut)
+            #expect(defaults.count == Shortcut.Action.allCases.count)
+            #expect(Set(defaults.map(\.text)).count == defaults.count)
+            #expect(defaults.allSatisfy { $0.isUsable })
+            // Quarter steps with Cmd, the default modifier, clash with none of them.
+            let shortcuts = Dictionary(uniqueKeysWithValues: zip(Shortcut.Action.allCases, defaults))
+            #expect(Shortcut.firstClash(among: shortcuts, quarterStep: .command) == nil)
+        }
+        #expect(Shortcut.DefaultSet.arrows.text(for: .brightnessUp) == "ctrl+alt+up")
+        #expect(Shortcut.DefaultSet.arrows.text(for: .mute) == "ctrl+alt+end")
+        // Where Apple's keyboards have these functions.
+        let functionKeys = Shortcut.Action.allCases.map(Shortcut.DefaultSet.functionKeys.text)
+        #expect(functionKeys == ["ctrl+alt+f2", "ctrl+alt+f1", "ctrl+alt+f12", "ctrl+alt+f11", "ctrl+alt+f10"])
     }
 
     @Test func writesItselfAsTextAndSymbols() {
@@ -567,9 +577,10 @@ import Testing
         .mute: Shortcut("ctrl+alt+end")!,
     ]
 
-    private func check(_ text: String?, for action: Shortcut.Action, quarterSteps: Bool = false) -> Shortcut.Rejection?
-    {
-        Shortcut.check(text.flatMap(Shortcut.init), for: action, others: others, quarterSteps: quarterSteps)
+    private func check(
+        _ text: String?, for action: Shortcut.Action, quarterStep: Shortcut.Modifiers? = nil
+    ) -> Shortcut.Rejection? {
+        Shortcut.check(text.flatMap(Shortcut.init), for: action, others: others, quarterStep: quarterStep)
     }
 
     @Test func acceptsAFreeShortcut() {
@@ -590,42 +601,72 @@ import Testing
         #expect(check("ctrl+alt+up", for: .volumeDown) == .usedBy(.brightnessUp))
     }
 
-    @Test func quarterStepsAlsoClaimTheShiftVariant() {
-        #expect(check("ctrl+alt+shift+up", for: .volumeDown) == nil)
-        #expect(check("ctrl+alt+shift+up", for: .volumeDown, quarterSteps: true) == .usedBy(.brightnessUp))
-        // Mute does not step, so it has no Shift variant.
-        #expect(check("ctrl+alt+shift+end", for: .volumeDown, quarterSteps: true) == nil)
+    @Test func quarterStepsAlsoClaimTheKeysWithTheirModifier() {
+        #expect(check("ctrl+alt+cmd+up", for: .volumeDown) == nil)
+        #expect(check("ctrl+alt+cmd+up", for: .volumeDown, quarterStep: .command) == .usedBy(.brightnessUp))
+        // With another modifier, other keys.
+        #expect(check("ctrl+alt+cmd+up", for: .volumeDown, quarterStep: .shift) == nil)
+        #expect(check("ctrl+alt+shift+up", for: .volumeDown, quarterStep: .shift) == .usedBy(.brightnessUp))
+        // Mute does not step, so it has no quarter step.
+        #expect(check("ctrl+alt+cmd+end", for: .volumeDown, quarterStep: .command) == nil)
+        // A shortcut's own quarter step may not be another's shortcut either.
+        #expect(check("ctrl+alt+down", for: .volumeDown, quarterStep: .command) == nil)
+        #expect(check("ctrl+left", for: .volumeDown, quarterStep: .option) == nil)
+        #expect(check("ctrl+right", for: .volumeDown, quarterStep: .option) == .usedBy(.volumeUp))
     }
 
     @Test func rejectsAShortcutMacOSUsesItself() {
         let system = [Shortcut("ctrl+up")!]
         func check(_ text: String) -> Shortcut.Rejection? {
             Shortcut.check(
-                Shortcut(text), for: .volumeDown, others: others, quarterSteps: false,
-                isUsedBySystem: system.contains)
+                Shortcut(text), for: .volumeDown, others: others, quarterStep: nil, isUsedBySystem: system.contains)
         }
         #expect(check("ctrl+up") == .usedBySystem)
         #expect(check("ctrl+down") == nil)
         // A clash with another action is the more useful thing to say.
         #expect(
             Shortcut.check(
-                Shortcut("ctrl+alt+up"), for: .volumeDown, others: others, quarterSteps: false,
+                Shortcut("ctrl+alt+up"), for: .volumeDown, others: others, quarterStep: nil,
                 isUsedBySystem: { _ in true }) == .usedBy(.brightnessUp))
     }
 
-    @Test func theQuarterStepVariantAddsShift() {
-        #expect(Shortcut("ctrl+alt+up")?.quarterStepVariant == Shortcut("ctrl+alt+shift+up"))
-        #expect(Shortcut("shift+f15")?.quarterStepVariant == nil)
+    @Test func aQuarterStepAddsItsModifier() {
+        #expect(Shortcut("ctrl+alt+up")?.adding(.command) == Shortcut("ctrl+alt+cmd+up"))
+        #expect(Shortcut("ctrl+alt+up")?.adding(.shift) == Shortcut("ctrl+alt+shift+up"))
+        #expect(Shortcut("shift+f15")?.adding(.shift) == nil)
+        #expect(Shortcut("ctrl+alt+up")?.adding(.option) == nil)
     }
 
-    @Test func aShortcutClaimsItsShiftVariantOnlyForQuarterSteps() throws {
+    @Test func aShortcutClaimsItsQuarterStepOnlyWhenThoseAreOn() throws {
         let up = try #require(Shortcut("ctrl+alt+up"))
-        let quarter = try #require(Shortcut("ctrl+alt+shift+up"))
-        #expect(up.claimed(for: .brightnessUp, quarterSteps: false) == [up])
-        #expect(up.claimed(for: .brightnessUp, quarterSteps: true) == [up, quarter])
-        // Mute does not step, and a shortcut that has Shift already has no variant.
-        #expect(up.claimed(for: .mute, quarterSteps: true) == [up])
-        #expect(quarter.claimed(for: .volumeUp, quarterSteps: true) == [quarter])
+        let quarter = try #require(Shortcut("ctrl+alt+cmd+up"))
+        #expect(up.claimed(for: .brightnessUp, quarterStep: nil) == [up])
+        #expect(up.claimed(for: .brightnessUp, quarterStep: .command) == [up, quarter])
+        // Mute does not step, and a shortcut that has the modifier already has no quarter step.
+        #expect(up.claimed(for: .mute, quarterStep: .command) == [up])
+        #expect(quarter.claimed(for: .volumeUp, quarterStep: .command) == [quarter])
+    }
+
+    /// Turning quarter steps on, or choosing their modifier, is checked before it is made.
+    @Test func findsTwoActionsThatQuarterStepsWouldMakeClash() throws {
+        var shortcuts = others
+        #expect(Shortcut.firstClash(among: shortcuts, quarterStep: .command) == nil)
+        shortcuts[.volumeDown] = Shortcut("ctrl+alt+cmd+up")
+        #expect(Shortcut.firstClash(among: shortcuts, quarterStep: nil) == nil)
+        let clash = try #require(Shortcut.firstClash(among: shortcuts, quarterStep: .command))
+        #expect(
+            clash.action == .brightnessUp && clash.other == .volumeDown && clash.keys == Shortcut("ctrl+alt+cmd+up"))
+        #expect(Shortcut.firstClash(among: shortcuts, quarterStep: .shift) == nil)
+    }
+
+    @Test func modifiersHaveNamesForSettingsAndForPeople() {
+        #expect(Shortcut.Modifiers(name: "cmd") == .command && Shortcut.Modifiers(name: "Option") == .option)
+        #expect(Shortcut.Modifiers(name: "hyper") == nil)
+        #expect(Shortcut.Modifiers.quarterStepChoices.map(\.name) == ["cmd", "shift", "alt", "ctrl"])
+        #expect(Shortcut.Modifiers.quarterStepChoices.map(\.title) == ["Cmd", "Shift", "Alt", "Ctrl"])
+        #expect(Shortcut.Modifiers([.command, .shift]).name == nil)
+        // Cmd is the default: with the default shortcuts, macOS uses Ctrl+Alt+Shift+arrows itself.
+        #expect(Shortcut.Modifiers.quarterStepChoices.first == .command)
     }
 }
 

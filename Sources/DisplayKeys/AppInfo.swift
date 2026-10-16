@@ -56,18 +56,66 @@ enum ProcessMemory {
 
 enum ShortcutSettings {
     private static let quarterStepsKey = "shortcut.quarterSteps"
+    private static let quarterStepModifierKey = "shortcut.quarterStepModifier"
+    private static let defaultSetKey = "shortcut.defaultSet"
 
-    /// Whether each stepping shortcut is also registered with Shift added, for quarter steps.
-    /// Off by default: macOS uses some of those combinations itself, such as Ctrl-Alt-Shift-arrows.
+    /// Whether each stepping shortcut is also registered with the quarter-step modifier added.
+    /// Off by default.
     static var quarterSteps: Bool {
         get { AppInfo.defaults.bool(forKey: quarterStepsKey) }
         set { store { $0.set(newValue, forKey: quarterStepsKey) } }
     }
 
+    /// What a quarter step adds to a stepping shortcut: Cmd unless another is chosen, since
+    /// macOS uses Ctrl+Alt+Shift with the arrows itself.
+    static var quarterStepModifier: Shortcut.Modifiers {
+        get {
+            AppInfo.defaults.string(forKey: quarterStepModifierKey).flatMap(Shortcut.Modifiers.init(name:))
+                ?? .command
+        }
+        set { store { $0.set(newValue.name, forKey: quarterStepModifierKey) } }
+    }
+
+    /// The modifier quarter steps add; nil while they are off.
+    static var quarterStep: Shortcut.Modifiers? {
+        quarterSteps ? quarterStepModifier : nil
+    }
+
+    /// The shortcuts an action has when none has been chosen for it. Settled when the app
+    /// first runs, so that installing a window manager later does not change shortcuts under
+    /// the user's fingers; until then, the set that suits this Mac.
+    static var defaultSet: Shortcut.DefaultSet {
+        AppInfo.defaults.string(forKey: defaultSetKey).flatMap(Shortcut.DefaultSet.init) ?? suitedDefaultSet
+    }
+
+    /// The function keys when a window manager that takes Ctrl+Alt with the arrows is installed,
+    /// else the arrows.
+    static var suitedDefaultSet: Shortcut.DefaultSet {
+        WindowManagers.installed.isEmpty ? .arrows : .functionKeys
+    }
+
+    /// Settles the defaults the first time the app runs: the set that suits this Mac for a new
+    /// install, and the arrows it has always had for one from before there was a choice.
+    static func settleDefaultSet(isNewInstall: Bool) {
+        guard AppInfo.defaults.string(forKey: defaultSetKey) == nil else { return }
+        let set = isNewInstall ? suitedDefaultSet : .arrows
+        store { $0.set(set.rawValue, forKey: defaultSetKey) }
+        log.notice("Default shortcuts: \(set.rawValue, privacy: .public)")
+    }
+
+    /// Chooses the defaults afresh for this Mac as it is now, as Restore Defaults does.
+    static func chooseDefaultSetAfresh() {
+        store { $0.set(suitedDefaultSet.rawValue, forKey: defaultSetKey) }
+    }
+
+    static func defaultShortcut(for action: Shortcut.Action) -> Shortcut? {
+        defaultSet.shortcut(for: action)
+    }
+
     /// The shortcut text for an action: the stored value, else the default; nil when disabled.
     static func text(for action: Shortcut.Action) -> String? {
         switch AppInfo.defaults.string(forKey: key(for: action)) {
-        case nil: action.defaultShortcut
+        case nil: defaultSet.text(for: action)
         case "": nil
         case let stored: stored
         }
@@ -104,6 +152,21 @@ enum ShortcutSettings {
         change(AppInfo.defaults)
         // The command line exits right after changing a setting, so write it out now.
         AppInfo.defaults.synchronize()
+    }
+}
+
+/// Window managers whose shortcuts are Ctrl+Alt with the arrows, as this app's would otherwise
+/// be. macOS lets two apps register the same keys and tells neither, so the clash cannot be
+/// seen; the app looks for the apps instead.
+enum WindowManagers {
+    private static let known: [(name: String, bundleID: String)] = [
+        ("Rectangle", "com.knollsoft.Rectangle"), ("Rectangle Pro", "com.knollsoft.Hookshot"),
+        ("Magnet", "com.crowdcafe.windowmagnet"),
+    ]
+
+    /// The names of those installed on this Mac.
+    static var installed: [String] {
+        known.filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleID) != nil }.map(\.name)
     }
 }
 

@@ -43,6 +43,8 @@ struct AppStatus: Codable {
     var keyTapActive: Bool
     var soundGoesToDisplay: Bool
     var quarterSteps: Bool
+    /// What quarter steps add, such as `cmd`. Optional, so that a status from an older build still reads.
+    var quarterStepModifier: String?
     var shortcuts: [ShortcutStatus]
     var input: Input
     /// How long the last read of the display took.

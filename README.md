@@ -13,11 +13,17 @@ How it is built, and what has been verified, is in [docs/DESIGN.md](docs/DESIGN.
 
 ## Using it
 
-| Action | Shortcut |
-|---|---|
-| Brightness up / down | `Ctrl+Alt+Up` / `Ctrl+Alt+Down` |
-| Volume up / down | `Ctrl+Alt+Right` / `Ctrl+Alt+Left` |
-| Mute | `Ctrl+Alt+End` |
+| Action | Shortcut | With Rectangle or Magnet installed |
+|---|---|---|
+| Brightness up / down | `Ctrl+Alt+Up` / `Ctrl+Alt+Down` | `Ctrl+Alt+F2` / `Ctrl+Alt+F1` |
+| Volume up / down | `Ctrl+Alt+Right` / `Ctrl+Alt+Left` | `Ctrl+Alt+F12` / `Ctrl+Alt+F11` |
+| Mute | `Ctrl+Alt+End` | `Ctrl+Alt+F10` |
+
+Rectangle and Magnet use Ctrl+Alt with the arrows themselves, and macOS lets both apps take
+the same keys without telling either, so when one of them is installed a new install starts
+on the function keys instead, where Apple's keyboards have these functions. On an Apple
+keyboard whose top row sends brightness and volume, hold fn with them. The choice is made
+once, the first time the app runs; Restore Defaults in Settings makes it again.
 
 Holding a shortcut keeps stepping, at the pace of the keyboard's own key repeat (System
 Settings → Keyboard). The menu bar item has sliders with a mute button for the mouse, and
@@ -47,9 +53,10 @@ Choose Settings… in the menu.
   keys, so that what you press is taken down and not acted on. Keys that macOS has a
   shortcut of its own on, such as Ctrl+Up for Mission Control, are turned down with a note
   saying so; to use them, switch macOS's shortcut off in System Settings → Keyboard →
-  Keyboard Shortcuts. "Also register each with Shift, for quarter steps" is off by default
-  because macOS uses some of those combinations itself, Ctrl+Alt+Shift+arrows among them;
-  when it is on, the window names the ones that clash.
+  Keyboard Shortcuts. "Quarter steps" registers each stepping shortcut a second time with a
+  modifier added, Cmd unless you choose another, for steps a quarter of the size. It is off by
+  default. Shift is a poor choice with the default shortcuts, since macOS uses
+  Ctrl+Alt+Shift+arrows itself; the window names any that clash.
 - **Brightness and volume keys**, the keyboard's own. Shows whether they are on, and turns
   them on.
 - **Launch at login.**
@@ -65,7 +72,7 @@ DisplayKeys shortcut                            # list
 DisplayKeys shortcut volume-up ctrl+alt+right   # set
 DisplayKeys shortcut mute none                  # remove
 DisplayKeys shortcut brightness-up default      # reset
-DisplayKeys shortcut quarter-steps on
+DisplayKeys shortcut quarter-steps on           # or off, or cmd, shift, alt or ctrl
 ```
 
 Actions are `brightness-up`, `brightness-down`, `volume-up`, `volume-down` and `mute`. The

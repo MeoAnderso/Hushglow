@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         startDisplays()
+        // Before any shortcut is registered.
+        ShortcutSettings.settleDefaultSet(isNewInstall: !AppInfo.defaults.bool(forKey: Self.welcomeShownKey))
 
         keyboard.onCommand = { [unowned self] in run($0, showOSD: true) }
         keyboard.routingContext = { [unowned self] in routingContext }
@@ -276,6 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             keyTapActive: keyboard.keysAreActive,
             soundGoesToDisplay: audio.outputIsDisplay,
             quarterSteps: ShortcutSettings.quarterSteps,
+            quarterStepModifier: ShortcutSettings.quarterStepModifier.name,
             shortcuts: keyboard.shortcutStatuses,
             input: keyboard.input,
             lastReadMilliseconds: lastRead?.milliseconds,
