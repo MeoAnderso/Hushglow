@@ -5,6 +5,8 @@ import DisplayKeysCore
 @MainActor
 protocol StatusMenuHost: AnyObject {
     var displayState: DisplayState? { get }
+    /// The names of the displays the app controls, as macOS shows them.
+    var controlledDisplayNames: [String] { get }
     var displayControlIsAvailable: Bool { get }
     var keyboardKeysAreActive: Bool { get }
     func run(_ command: Command, showOSD: Bool)
@@ -97,6 +99,7 @@ final class MenuControls: NSObject {
     let brightnessRow = SliderRow(name: "Brightness", symbol: "sun.max.fill", hasButton: false)
     let volumeRow = SliderRow(name: "Volume", symbol: "speaker.wave.2.fill", hasButton: true)
     let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    let versionLine = NSMenuItem(title: "\(AppInfo.name) \(AppInfo.version)", action: nil, keyEquivalent: "")
     private let brightnessItem = NSMenuItem()
     private let volumeItem = NSMenuItem()
     private let hintItem = NSMenuItem()
@@ -118,6 +121,7 @@ final class MenuControls: NSObject {
         volumeItem.view = volumeRow
         hintItem.isEnabled = false
         statusLine.isEnabled = false
+        versionLine.isEnabled = false
         accessItem.target = self
         accessItem.action = #selector(enableKeyboardKeys)
         accessItem.subtitle = "Needs \(AccessibilityAccess.listName)"
@@ -125,7 +129,7 @@ final class MenuControls: NSObject {
 
     /// The items in the order the menu shows them.
     var items: [NSMenuItem] {
-        [brightnessItem, volumeItem, hintItem, .separator(), statusLine, accessItem]
+        [brightnessItem, volumeItem, hintItem, .separator(), statusLine, versionLine, accessItem]
     }
 
     /// Brings everything in line with what the app knows.
@@ -148,8 +152,10 @@ final class MenuControls: NSObject {
         } else if state == nil {
             statusLine.title = "No controllable display found"
         } else {
-            let name = NSScreen.screens.first { !Self.isBuiltIn($0) }?.localizedName ?? "Display"
-            statusLine.title = "\(name) connected"
+            // The display under control, which need not be the first screen: another can be a
+            // television or a projector that does not answer DDC.
+            let names = ListFormatter.localizedString(byJoining: host.controlledDisplayNames)
+            statusLine.title = names.isEmpty ? "Controlling a display" : "Controlling \(names)"
         }
 
         accessItem.isHidden = host.keyboardKeysAreActive
@@ -205,12 +211,6 @@ final class MenuControls: NSObject {
 
     @objc private func enableKeyboardKeys() {
         host.enableKeyboardKeys()
-    }
-
-    private static func isBuiltIn(_ screen: NSScreen) -> Bool {
-        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-        else { return false }
-        return CGDisplayIsBuiltin(number) != 0
     }
 }
 

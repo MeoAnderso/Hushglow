@@ -133,6 +133,8 @@ public final class Displays<Transport: DisplayTransport> {
     }
 
     public var primary: DisplayState? { entries.first?.state }
+    /// The displays that answer DDC, which commands go to.
+    public var controlled: [Transport.Handle] { entries.map(\.display) }
     public var hasBrightness: Bool { entries.contains { $0.state.brightness != nil } }
     public var hasVolume: Bool { entries.contains { $0.state.volume != nil } }
 

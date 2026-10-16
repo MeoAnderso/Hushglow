@@ -1,16 +1,78 @@
+import AppKit
 import DisplayKeysCore
 import Foundation
 import IOKit
 
+/// What a display's EDID says it is, as macOS keeps it for the display's framebuffer. The
+/// numbers are the ones Core Graphics reports for a screen, so they tell which screen it is.
+struct DisplayIdentity: Equatable, Sendable {
+    var vendor: UInt32
+    var model: UInt32
+    var serial: UInt32
+    /// The name in the EDID, such as "PANEL 27".
+    var productName: String?
+
+    /// From a framebuffer's registry entry; nil when nothing is connected to it.
+    init?(framebuffer entry: io_registry_entry_t) {
+        guard
+            let attributes = IORegistryEntryCreateCFProperty(
+                entry, "DisplayAttributes" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? [String: Any],
+            let product = attributes["ProductAttributes"] as? [String: Any],
+            let vendor = product["LegacyManufacturerID"] as? Int, let model = product["ProductID"] as? Int
+        else { return nil }
+        self.init(
+            vendor: UInt32(truncatingIfNeeded: vendor), model: UInt32(truncatingIfNeeded: model),
+            serial: UInt32(truncatingIfNeeded: product["SerialNumber"] as? Int ?? 0),
+            productName: product["ProductName"] as? String)
+    }
+
+    init(vendor: UInt32, model: UInt32, serial: UInt32, productName: String?) {
+        self.vendor = vendor
+        self.model = model
+        self.serial = serial
+        self.productName = productName
+    }
+
+    /// The screen this display is, among those given: the one with the same vendor, model and
+    /// serial number, or with the same vendor and model when the serial says nothing.
+    func screen(
+        among screens: [(id: CGDirectDisplayID, vendor: UInt32, model: UInt32, serial: UInt32)]
+    )
+        -> CGDirectDisplayID?
+    {
+        let same = screens.filter { $0.vendor == vendor && $0.model == model }
+        return (same.first { $0.serial == serial } ?? (same.count == 1 ? same.first : nil))?.id
+    }
+
+    /// The name macOS shows for this display, as in System Settings; the EDID's name when no
+    /// screen matches.
+    @MainActor var name: String? {
+        let screens = NSScreen.screens.compactMap { screen -> (NSScreen, CGDirectDisplayID)? in
+            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+            else { return nil }
+            return (screen, id)
+        }
+        let id = screen(
+            among: screens.map {
+                ($0.1, CGDisplayVendorNumber($0.1), CGDisplayModelNumber($0.1), CGDisplaySerialNumber($0.1))
+            })
+        return screens.first { $0.1 == id }?.0.localizedName ?? productName
+    }
+}
+
 /// A retained IOAVService reference for one external display.
 final class AVService: @unchecked Sendable {
     fileprivate let reference: UnsafeMutableRawPointer
+    /// Which display this is; nil when the registry did not say.
+    let identity: DisplayIdentity?
     /// Whether the display has shown that it needs the long waits. Only touched on the queue
     /// that talks to the display.
     fileprivate var pace = DDC.Pace()
 
-    fileprivate init(reference: UnsafeMutableRawPointer) {
+    fileprivate init(reference: UnsafeMutableRawPointer, identity: DisplayIdentity?) {
         self.reference = reference
+        self.identity = identity
     }
 
     deinit {
@@ -70,22 +132,37 @@ struct IOAV: DisplayTransport {
         writeI2C = unsafeBitCast(write, to: WriteI2C.self)
     }
 
+    /// The external displays' DDC services, each with the display it reaches.
+    ///
+    /// The registry lists every display's framebuffer before the DDC service that reaches the
+    /// same display, so walking it in order pairs the two; the framebuffer is what knows the
+    /// display's EDID. The walk takes about 10 ms, on the queue that talks to the display.
     func displays() -> [AVService] {
         var iterator: io_iterator_t = 0
         guard
-            IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("DCPAVServiceProxy"), &iterator)
+            IORegistryCreateIterator(
+                kIOMainPortDefault, kIOServicePlane, IOOptionBits(kIORegistryIterateRecursively), &iterator)
                 == KERN_SUCCESS
         else { return [] }
         defer { IOObjectRelease(iterator) }
 
         var services: [AVService] = []
+        var framebuffer: DisplayIdentity?
         while case let entry = IOIteratorNext(iterator), entry != 0 {
             defer { IOObjectRelease(entry) }
-            let location =
-                IORegistryEntryCreateCFProperty(entry, "Location" as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? String
-            guard location == "External", let reference = createWithService(nil, entry) else { continue }
-            services.append(AVService(reference: reference))
+            switch IOObjectCopyClass(entry)?.takeRetainedValue() as String? {
+            // The first on Macs with M2 and later, the second on those with M1.
+            case "IOMobileFramebufferShim", "AppleCLCD2":
+                framebuffer = DisplayIdentity(framebuffer: entry)
+            case "DCPAVServiceProxy":
+                let location =
+                    IORegistryEntryCreateCFProperty(entry, "Location" as CFString, kCFAllocatorDefault, 0)?
+                    .takeRetainedValue() as? String
+                guard location == "External", let reference = createWithService(nil, entry) else { continue }
+                services.append(AVService(reference: reference, identity: framebuffer))
+            default:
+                continue
+            }
         }
         return services
     }

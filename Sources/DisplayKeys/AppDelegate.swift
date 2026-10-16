@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     private var lastRead: (milliseconds: Int, values: Int)?
 
     var displayState: DisplayState? { displays?.primary }
+    var controlledDisplayNames: [String] { displays?.controlled.compactMap { $0.identity?.name } ?? [] }
     var displayControlIsAvailable: Bool { displays != nil }
     var keyboardKeysAreActive: Bool { keyboard.keysAreActive }
 

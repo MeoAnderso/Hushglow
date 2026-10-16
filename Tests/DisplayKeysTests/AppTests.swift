@@ -10,6 +10,45 @@ import Testing
     @Test func displayControlFunctionsResolve() {
         #expect(IOAV.shared != nil)
     }
+
+    /// On this Mac as it is: every external display's DDC service is paired with the screen it
+    /// reaches, by what its EDID says. Nothing is written to a display, and nothing read from one.
+    @Test func everyExternalDisplayIsPairedWithItsScreen() throws {
+        let io = try #require(IOAV.shared)
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        CGGetOnlineDisplayList(16, &ids, &count)
+        let external = ids.prefix(Int(count)).filter { CGDisplayIsBuiltin($0) == 0 }
+            .map { ($0, CGDisplayVendorNumber($0), CGDisplayModelNumber($0), CGDisplaySerialNumber($0)) }
+        let found = io.displays()
+        #expect(found.count == external.count)
+        let paired = found.compactMap { $0.identity?.screen(among: external) }
+        #expect(paired.count == found.count && Set(paired).count == paired.count)
+    }
+}
+
+@Suite struct DisplayIdentityTests {
+    private let screens: [(id: CGDirectDisplayID, vendor: UInt32, model: UInt32, serial: UInt32)] = [
+        (2, 4660, 22136, 100001), (3, 4661, 22137, 16_843_009), (4, 4660, 22136, 100002),
+    ]
+
+    private func identity(_ vendor: UInt32, _ model: UInt32, _ serial: UInt32) -> DisplayIdentity {
+        DisplayIdentity(vendor: vendor, model: model, serial: serial, productName: nil)
+    }
+
+    @Test func isTheScreenWithTheSameVendorModelAndSerial() {
+        #expect(identity(4660, 22136, 100001).screen(among: screens) == 2)
+        #expect(identity(4660, 22136, 100002).screen(among: screens) == 4)
+        #expect(identity(4661, 22137, 16_843_009).screen(among: screens) == 3)
+    }
+
+    /// Some displays report no serial, or another one over DDC than macOS has. One screen of
+    /// the same make is then that one; two of them could be either.
+    @Test func fallsBackOnVendorAndModelOnlyWhenThatIsUnambiguous() {
+        #expect(identity(4661, 22137, 0).screen(among: screens) == 3)
+        #expect(identity(4660, 22136, 0).screen(among: screens) == nil)
+        #expect(identity(1, 2, 3).screen(among: screens) == nil)
+    }
 }
 
 @Suite struct BundleTests {
@@ -1011,6 +1050,7 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
 @MainActor
 final class StubMenuHost: StatusMenuHost {
     var displayState: DisplayState?
+    var controlledDisplayNames = ["PANEL 27"]
     var displayControlIsAvailable = true
     var keyboardKeysAreActive = false
     var commands: [Command] = []
@@ -1059,6 +1099,17 @@ final class StubMenuHost: StatusMenuHost {
         // A control the display lacks has no row.
         let hidden = controls.items.filter(\.isHidden).compactMap(\.view)
         #expect(hidden == [controls.volumeRow])
+
+        // The display under control is named, which need not be the first screen.
+        #expect(controls.statusLine.title == "Controlling PANEL 27")
+        host.controlledDisplayNames = ["PANEL 27", "PANEL 32"]
+        controls.update()
+        #expect(controls.statusLine.title == "Controlling PANEL 27 and PANEL 32")
+        host.controlledDisplayNames = []
+        controls.update()
+        #expect(controls.statusLine.title == "Controlling a display")
+        // And the version, which nothing else in the interface shows.
+        #expect(controls.items.contains { $0.title == "DisplayKeys \(AppInfo.version)" && !$0.isEnabled })
 
         host.displayState = nil
         controls.update()

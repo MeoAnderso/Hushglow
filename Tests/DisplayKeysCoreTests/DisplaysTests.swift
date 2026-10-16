@@ -431,6 +431,8 @@ private final class Recorder {
         try? await Task.sleep(for: .milliseconds(80))
         #expect(transport.discoveries == 4)
         #expect(displays.primary?.brightness?.current == 50)
+        // Only the display that answers is under control, and named in the menu.
+        #expect(displays.controlled.count == 1)
 
         // Having stayed silent throughout, it is not waited for again.
         displays.refresh()
