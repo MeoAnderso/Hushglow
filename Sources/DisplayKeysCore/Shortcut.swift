@@ -11,6 +11,11 @@ public struct Shortcut: Equatable, Sendable {
         public static let shift = Modifiers(rawValue: 1 << 1)
         public static let option = Modifiers(rawValue: 1 << 2)
         public static let control = Modifiers(rawValue: 1 << 3)
+
+        /// The modifiers as macOS shows them, in its order, for example `⌃⌥`.
+        public var symbols: String {
+            Shortcut.modifierOrder.filter { contains($0.modifier) }.map(\.symbol).joined()
+        }
     }
 
     /// The actions a shortcut can be bound to, by the name used in settings and on the command line.
@@ -150,11 +155,11 @@ public struct Shortcut: Equatable, Sendable {
             separator: "+")
     }
 
-    /// The form shown to people, for example `⌃⌥↑`.
+    /// The form shown to people, for example `⌃⌥↑` or `⌃⌥End`. The arrows are shown as arrows;
+    /// Home, End and the page keys by name, since few people know their symbols.
     public var symbols: String {
         let key = Self.keyName(for: keyCode) ?? ""
-        let keySymbol = Self.keySymbols[key] ?? key.uppercased()
-        return Self.modifierOrder.filter { modifiers.contains($0.modifier) }.map(\.symbol).joined() + keySymbol
+        return modifiers.symbols + (Self.keySymbols[key] ?? Self.keyWords[key] ?? key.uppercased())
     }
 
     /// The form read aloud by VoiceOver, for example `Control Option Up Arrow`.
@@ -165,7 +170,7 @@ public struct Shortcut: Equatable, Sendable {
             separator: " ")
     }
 
-    private static let modifierOrder: [(modifier: Modifiers, name: String, symbol: String, word: String)] = [
+    fileprivate static let modifierOrder: [(modifier: Modifiers, name: String, symbol: String, word: String)] = [
         (.control, "ctrl", "⌃", "Control"), (.option, "alt", "⌥", "Option"), (.shift, "shift", "⇧", "Shift"),
         (.command, "cmd", "⌘", "Command"),
     ]
@@ -175,10 +180,7 @@ public struct Shortcut: Equatable, Sendable {
         "pageup": "Page Up", "pagedown": "Page Down", "home": "Home", "end": "End",
     ]
 
-    private static let keySymbols: [String: String] = [
-        "up": "↑", "down": "↓", "left": "←", "right": "→",
-        "pageup": "⇞", "pagedown": "⇟", "home": "↖", "end": "↘",
-    ]
+    private static let keySymbols: [String: String] = ["up": "↑", "down": "↓", "left": "←", "right": "→"]
 
     private static let modifierNames: [String: Modifiers] = [
         "cmd": .command, "command": .command,

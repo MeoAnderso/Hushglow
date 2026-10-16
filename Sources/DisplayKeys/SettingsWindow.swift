@@ -40,7 +40,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private unowned let host: any SettingsHost
     private var window: NSWindow?
     private var content: FittedView?
-    private var fields: [Shortcut.Action: ShortcutField] = [:]
+    private var controls: [Shortcut.Action: ShortcutControl] = [:]
     private var message: NSTextField?
     /// Why the last recorded shortcut was turned down; shown until the next attempt.
     private var rejectionText: String?
@@ -87,7 +87,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 
     private func stopRecording() {
-        for field in fields.values { field.stopRecording() }
+        for control in controls.values { control.field.stopRecording() }
     }
 
     /// Access may have been granted in System Settings while this window was in the background.
@@ -171,9 +171,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             "Indicator", [form([("Style", [stylePopup]), ("Position", [positionPopup])], spacing: 8), percentageBox])
 
         var shortcutRows: [(String, [NSView])] = []
-        for (index, action) in Shortcut.Action.allCases.enumerated() {
-            let field = Layout.size(ShortcutField(frame: .zero), NSSize(width: 200, height: 26))
-            field.title = "\(action.title) shortcut"
+        for action in Shortcut.Action.allCases {
+            let control = ShortcutControl(title: action.title)
+            let field = control.field
             field.validate = { [unowned self] in rejection(of: $0, for: action) }
             field.onMessage = { [unowned self] in show(message: $0) }
             field.onChange = { [unowned self] shortcut in
@@ -184,23 +184,17 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             field.onRecordingChange = { [unowned self] isRecording in
                 if isRecording { host.pauseShortcuts() } else { host.resumeShortcuts() }
             }
-            fields[action] = field
-
-            let clear = NSButton(
-                image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil)!, target: self,
-                action: #selector(clearShortcut))
-            clear.isBordered = false
-            clear.contentTintColor = .tertiaryLabelColor
-            clear.tag = index
-            clear.setAccessibilityLabel("Remove the \(action.title) shortcut")
-            shortcutRows.append((action.title, [field, Layout.size(clear, NSSize(width: 24, height: 24))]))
+            control.onReset = { [unowned self] in putBackDefault(for: action) }
+            control.onRemove = { [unowned self] in remove(action) }
+            controls[action] = control
+            shortcutRows.append((action.title, [control]))
         }
         let quarterStepsBox = checkbox(
             "Also register each with Shift, for quarter steps", #selector(quarterStepsChanged))
         self.quarterStepsBox = quarterStepsBox
+        // Takes room only while it has something to say.
         let message = note()
-        // Room for two lines, so that a message coming or going moves nothing.
-        message.heightAnchor.constraint(greaterThanOrEqualToConstant: 28).isActive = true
+        message.isHidden = true
         self.message = message
         let shortcuts = section("Shortcuts", [form(shortcutRows, spacing: 6), quarterStepsBox, message])
 
@@ -245,8 +239,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             at: IndicatorSettings.Position.allCases.firstIndex(of: IndicatorSettings.position) ?? 0)
         percentageBox?.state = IndicatorSettings.showsPercentage ? .on : .off
 
-        for (action, field) in fields {
-            field.shortcut = ShortcutSettings.shortcut(for: action)
+        for (action, control) in controls {
+            control.shortcut = ShortcutSettings.shortcut(for: action)
+            control.defaultShortcut = action.defaultShortcut.flatMap(Shortcut.init)
         }
         quarterStepsBox?.state = ShortcutSettings.quarterSteps ? .on : .off
 
@@ -273,13 +268,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private func show(message text: String?) {
         rejectionText = text
         refreshMessage()
+        if let content { GlassPanel.fit(window, to: content) }
     }
 
     /// The line under the shortcuts: why the last attempt was turned down, or else which of the
     /// current shortcuts macOS uses itself.
     private func refreshMessage() {
         let clash = rejectionText == nil ? clashNote() : nil
-        message?.stringValue = rejectionText ?? clash ?? ""
+        let text = rejectionText ?? clash ?? ""
+        message?.stringValue = text
+        message?.isHidden = text.isEmpty
         message?.textColor = rejectionText == nil ? .systemOrange : .systemRed
     }
 
@@ -326,11 +324,22 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// Has the app register the shortcuts as they now are. While a field is recording they
     /// stay out of the way; the end of the recording registers them.
     private func applyShortcuts() {
-        if !fields.values.contains(where: \.isRecording) { host.resumeShortcuts() }
+        if !controls.values.contains(where: \.field.isRecording) { host.resumeShortcuts() }
     }
 
-    @objc private func clearShortcut(_ sender: NSButton) {
-        ShortcutSettings.set("", for: Shortcut.Action.allCases[sender.tag])
+    private func remove(_ action: Shortcut.Action) {
+        ShortcutSettings.set("", for: action)
+        show(message: nil)
+        reload()
+        applyShortcuts()
+    }
+
+    /// Gives an action its default shortcut again, unless another action has taken those keys
+    /// meanwhile or something else stands in the way; then it says why, as for keys pressed.
+    private func putBackDefault(for action: Shortcut.Action) {
+        let shortcut = action.defaultShortcut.flatMap(Shortcut.init)
+        if let reason = rejection(of: shortcut, for: action) { return show(message: reason) }
+        ShortcutSettings.set(nil, for: action)
         show(message: nil)
         reload()
         applyShortcuts()

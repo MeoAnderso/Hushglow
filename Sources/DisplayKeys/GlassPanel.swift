@@ -32,7 +32,8 @@ enum GlassPanel {
     }
 
     /// A panel's content: `body` laid out inside it with Auto Layout, the given width, and as
-    /// tall as `body` needs. Call `fit` on it when what it shows may have changed height.
+    /// tall as `body` needs. When what it shows may have changed height, `fit(_:to:)` makes
+    /// the window follow.
     static func content(_ body: NSView, width: CGFloat) -> FittedView {
         let content = FittedView(body: body, width: width)
         content.fit()
@@ -40,20 +41,24 @@ enum GlassPanel {
     }
 
     /// Makes a panel's window as tall as its content now needs, keeping its top edge in place.
+    /// In a window the content takes its size from the glass around it, so the window is what
+    /// is resized; without one, the content is.
     static func fit(_ window: NSWindow?, to content: FittedView) {
-        content.fit()
-        guard let window else { return }
-        let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: content.frame.size))
-        guard frame.size != window.frame.size else { return }
-        let top = window.frame.maxY
-        window.setFrame(
-            NSRect(x: window.frame.minX, y: top - frame.height, width: frame.width, height: frame.height),
-            display: true)
+        guard let window, content.window == window else { return content.fit() }
+        let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: content.fittedSize))
+        if frame.size != window.frame.size {
+            let top = window.frame.maxY
+            window.setFrame(
+                NSRect(x: window.frame.minX, y: top - frame.height, width: frame.width, height: frame.height),
+                display: true)
+        }
+        content.layoutSubtreeIfNeeded()
     }
 }
 
-/// A view that holds a body laid out with Auto Layout and takes the size the body asks for.
-/// The window and the glass around it place it by its frame, as they do any content view.
+/// A view that holds a body laid out with Auto Layout and knows the size the body asks for.
+/// The glass around it gives it its frame, as it does any content view, so in a window it is
+/// the window that is made to fit.
 final class FittedView: NSView {
     private let width: CGFloat
 
@@ -82,11 +87,19 @@ final class FittedView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// Takes the height the body now needs, and lays it out at once, so the frames of the parts
-    /// are right as soon as this returns.
-    func fit() {
+    /// The size the body needs as it now is.
+    var fittedSize: NSSize {
+        // A stack lets go of a view that was just hidden only when its constraints are next
+        // brought up to date, so that comes first.
+        updateConstraintsForSubtreeIfNeeded()
         layoutSubtreeIfNeeded()
-        setFrameSize(NSSize(width: width, height: ceil(fittingSize.height)))
+        return NSSize(width: width, height: ceil(fittingSize.height))
+    }
+
+    /// Takes the size the body needs, and lays it out at once, so the frames of the parts are
+    /// right as soon as this returns. For content that is in no window yet.
+    func fit() {
+        setFrameSize(fittedSize)
         layoutSubtreeIfNeeded()
     }
 }

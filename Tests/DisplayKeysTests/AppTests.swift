@@ -226,6 +226,114 @@ func descendants(of view: NSView) -> [NSView] {
         #expect(changes.count == 2 && changes.last == .some(nil))
     }
 
+    /// While it waits for keys, the field shows the modifiers that are held, as they are pressed.
+    @Test func aFieldShowsTheModifiersAsTheyAreHeld() throws {
+        let field = ShortcutField(frame: NSRect(x: 0, y: 0, width: 196, height: 26))
+        func flags(_ flags: NSEvent.ModifierFlags) throws -> NSEvent {
+            try #require(
+                NSEvent.keyEvent(
+                    with: .flagsChanged, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0,
+                    context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 59))
+        }
+        // Not recording, held keys change nothing.
+        field.flagsChanged(with: try flags([.control]))
+        #expect(field.shownText == "None")
+
+        field.keyDown(with: try keyPress(49))  // Space
+        #expect(field.shownText == "Press keys…")
+        field.flagsChanged(with: try flags([.control]))
+        #expect(field.shownText == "⌃…")
+        field.flagsChanged(with: try flags([.control, .option, .command]))
+        #expect(field.shownText == "⌃⌥⌘…")
+        field.flagsChanged(with: try flags([]))
+        #expect(field.shownText == "Press keys…")
+
+        field.flagsChanged(with: try flags([.control, .option]))
+        field.keyDown(with: try keyPress(0x77, [.control, .option]))  // End
+        #expect(!field.isRecording && field.shownText == "⌃⌥End")
+    }
+
+    /// The buttons beside a field show only while the pointer is there or the field has the
+    /// focus, and only when they would change something. VoiceOver finds them whenever they would.
+    @Test func theButtonsBesideAFieldShowWhenTheyApply() throws {
+        let control = ShortcutControl(title: "Brightness up")
+        let original = try #require(Shortcut("ctrl+alt+up"))
+        var pressed: [String] = []
+        control.onReset = { pressed.append("reset") }
+        control.onRemove = { pressed.append("remove") }
+        func shown() -> [String] {
+            [("reset", control.resetButton), ("remove", control.removeButton)]
+                .filter { $0.1.alphaValue > 0 }.map(\.0)
+        }
+        control.defaultShortcut = original
+        control.shortcut = original
+        // The default shortcut can only be removed, and nothing shows without the pointer.
+        #expect(!control.canReset && control.canRemove)
+        #expect(shown().isEmpty)
+        #expect(control.removeButton.isAccessibilityElement() && !control.resetButton.isAccessibilityElement())
+
+        let event = try #require(
+            NSEvent.enterExitEvent(
+                with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                eventNumber: 0, trackingNumber: 0, userData: nil))
+        control.mouseEntered(with: event)
+        #expect(shown() == ["remove"])
+
+        control.shortcut = Shortcut("ctrl+alt+f1")
+        #expect(shown() == ["reset", "remove"])
+        control.setFrameSize(control.fittingSize)
+        control.layoutSubtreeIfNeeded()
+        try writePreviews(of: control, named: "shortcut-control-hovered")
+        #expect(control.resetButton.accessibilityLabel() == "Put back the default shortcut, Control Option Up Arrow")
+        control.shortcut = nil
+        #expect(shown() == ["reset"] && control.removeButton.isEnabled == false)
+        control.mouseExited(with: event)
+        #expect(shown().isEmpty)
+
+        // The focus shows them too, for the keyboard.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 40), styleMask: [.borderless], backing: .buffered,
+            defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(control)
+        #expect(window.makeFirstResponder(control.field))
+        #expect(shown() == ["reset"])
+        control.resetButton.performClick(nil)
+        control.removeButton.performClick(nil)
+        #expect(pressed == ["reset"])
+        #expect(window.makeFirstResponder(nil))
+        #expect(shown().isEmpty)
+    }
+
+    /// The line for messages takes room only while it has one, and the window follows, with its
+    /// top edge where it was. No shortcut is stored on the way.
+    @Test func theWindowMakesRoomForAMessageAndGivesItBack() throws {
+        let host = StubHost()
+        let settings = SettingsWindow(host: host)
+        let window = settings.makeWindow()
+        let parts = descendants(of: try #require(window.contentView))
+        let content = try #require(parts.first { $0 is FittedView })
+        let labels = parts.compactMap { $0 as? NSTextField }
+        let message = try #require(labels.first { $0.textColor == .systemOrange || $0.textColor == .systemRed })
+        let field = try #require(parts.compactMap { $0 as? ShortcutField }.first)
+        let before = window.frame
+        // macOS's own shortcuts are not part of this; a clash would leave a message up.
+        guard message.isHidden else { return }
+
+        field.keyDown(with: try keyPress(49))  // Space
+        field.keyDown(with: try keyPress(0, [.control]))  // the A key cannot be a shortcut
+        #expect(!message.isHidden && message.stringValue.hasPrefix("That key can’t be used"))
+        #expect(window.frame.height > before.height && window.frame.maxY == before.maxY)
+        #expect(!hasLayoutFault(content))
+
+        field.keyDown(with: try keyPress(53))  // Esc
+        field.keyDown(with: try keyPress(49))  // Space again clears the message
+        #expect(message.isHidden, "\(message.stringValue)")
+        #expect(window.frame == before, "\(window.frame) \(before)")
+        field.stopRecording()
+        window.close()
+    }
+
     /// A field tells of the change before it stops recording: the shortcuts are put back when
     /// the recording ends, and the new one has to be stored by then.
     @Test func aFieldPassesAChangeOnBeforeItStopsRecording() throws {

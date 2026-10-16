@@ -2,7 +2,8 @@ import AppKit
 import DisplayKeysCore
 
 /// Shows a shortcut and records a new one: click it, or focus it and press Space, then press
-/// the keys. Delete removes the shortcut and Esc cancels.
+/// the keys. Delete removes the shortcut and Esc cancels. While it waits for keys it shows the
+/// modifiers that are held, as they are pressed.
 final class ShortcutField: NSView {
     private enum Key {
         static let escape: UInt16 = 53
@@ -28,12 +29,20 @@ final class ShortcutField: NSView {
     /// Called when the field starts waiting for keys and when it stops. While it waits, the
     /// app's own shortcuts have to be out of the way, or pressing one would act.
     var onRecordingChange: ((Bool) -> Void)?
+    /// Called when the field takes the focus and when it gives it up.
+    var onFocusChange: ((Bool) -> Void)?
 
     private(set) var isRecording = false {
         didSet {
+            heldModifiers = []
             needsDisplay = true
             if isRecording != oldValue { onRecordingChange?(isRecording) }
         }
+    }
+
+    /// The modifiers held down while the field waits for keys.
+    private(set) var heldModifiers: Shortcut.Modifiers = [] {
+        didSet { if heldModifiers != oldValue { needsDisplay = true } }
     }
 
     // MARK: Focus
@@ -48,11 +57,13 @@ final class ShortcutField: NSView {
 
     override func becomeFirstResponder() -> Bool {
         needsDisplay = true
+        onFocusChange?(true)
         return true
     }
 
     override func resignFirstResponder() -> Bool {
         isRecording = false
+        onFocusChange?(false)
         return true
     }
 
@@ -75,6 +86,11 @@ final class ShortcutField: NSView {
 
     override func keyDown(with event: NSEvent) {
         if !handle(event) { super.keyDown(with: event) }
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        if isRecording { heldModifiers = Shortcut.modifiers(of: event) }
+        super.flagsChanged(with: event)
     }
 
     /// Shortcuts with Cmd arrive as key equivalents instead of key presses.
@@ -121,6 +137,12 @@ final class ShortcutField: NSView {
 
     // MARK: Drawing
 
+    /// What the field shows: the shortcut, or while it waits for keys the modifiers held so far.
+    var shownText: String {
+        guard isRecording else { return shortcut?.symbols ?? "None" }
+        return heldModifiers.isEmpty ? "Press keys…" : heldModifiers.symbols + "…"
+    }
+
     private var outline: NSBezierPath {
         NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
     }
@@ -135,7 +157,7 @@ final class ShortcutField: NSView {
         frame.stroke()
 
         let label = NSAttributedString(
-            string: isRecording ? "Press keys…" : shortcut?.symbols ?? "None",
+            string: shownText,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 13),
                 .foregroundColor: isRecording || shortcut == nil ? NSColor.secondaryLabelColor : NSColor.labelColor,
@@ -159,6 +181,123 @@ final class ShortcutField: NSView {
         window?.makeFirstResponder(self)
         startRecording()
         return true
+    }
+}
+
+/// A shortcut field with two buttons beside it: one removes the shortcut, the other puts the
+/// action's default shortcut back. They show while the pointer is over the field or them, or
+/// while the field has the focus, and only when pressing them would change something. To
+/// VoiceOver they are there whenever they would change something.
+final class ShortcutControl: NSView {
+    let field = Layout.size(ShortcutField(frame: .zero), NSSize(width: 196, height: 26))
+    let resetButton: NSButton
+    let removeButton: NSButton
+    /// Called when one of the buttons is pressed.
+    var onReset: (() -> Void)?
+    var onRemove: (() -> Void)?
+
+    /// The shortcut the field shows; set it here, so that the buttons follow.
+    var shortcut: Shortcut? {
+        get { field.shortcut }
+        set {
+            field.shortcut = newValue
+            updateButtons()
+        }
+    }
+
+    /// The action's default shortcut, which the reset button puts back.
+    var defaultShortcut: Shortcut? {
+        didSet { updateButtons() }
+    }
+
+    /// Whether the pointer is over the field or its buttons.
+    private(set) var isHovered = false {
+        didSet { if isHovered != oldValue { updateButtons() } }
+    }
+    private var fieldHasFocus = false
+
+    /// `title` is the action's, such as "Brightness up".
+    init(title: String) {
+        func button(_ symbol: String, _ action: Selector) -> NSButton {
+            let button = NSButton(
+                image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage(), target: nil,
+                action: action)
+            button.isBordered = false
+            button.contentTintColor = .tertiaryLabelColor
+            return Layout.size(button, NSSize(width: 22, height: 22))
+        }
+        resetButton = button("arrow.counterclockwise.circle.fill", #selector(reset))
+        removeButton = button("xmark.circle.fill", #selector(remove))
+        super.init(frame: .zero)
+        field.title = "\(title) shortcut"
+        removeButton.setAccessibilityLabel("Remove the \(title) shortcut")
+        removeButton.toolTip = "Remove"
+        for button in [resetButton, removeButton] { button.target = self }
+        field.onFocusChange = { [unowned self] in
+            fieldHasFocus = $0
+            updateButtons()
+        }
+
+        let row = Layout.row([field, removeButton, resetButton], spacing: 2)
+        row.setCustomSpacing(6, after: field)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.topAnchor.constraint(equalTo: topAnchor),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        updateButtons()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("ShortcutControl is created in code")
+    }
+
+    /// Whether each button would change something.
+    var canReset: Bool { defaultShortcut != nil && shortcut != defaultShortcut }
+    var canRemove: Bool { shortcut != nil }
+
+    private func updateButtons() {
+        let isShown = isHovered || fieldHasFocus
+        for (button, applies) in [(resetButton, canReset), (removeButton, canRemove)] {
+            // Faded out rather than hidden, so that the field does not move.
+            button.alphaValue = applies && isShown ? 1 : 0
+            button.isEnabled = applies
+            button.setAccessibilityElement(applies)
+        }
+        if let defaultShortcut {
+            resetButton.setAccessibilityLabel("Put back the default shortcut, \(defaultShortcut.spoken)")
+            resetButton.toolTip = "Put back \(defaultShortcut.symbols)"
+        }
+    }
+
+    // MARK: The pointer
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+    }
+
+    @objc private func reset() {
+        onReset?()
+    }
+
+    @objc private func remove() {
+        onRemove?()
     }
 }
 

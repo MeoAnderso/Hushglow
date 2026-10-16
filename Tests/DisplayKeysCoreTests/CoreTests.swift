@@ -322,7 +322,11 @@ import Testing
         #expect(Shortcut("Alt+Ctrl+Up")?.text == "ctrl+alt+up")
         #expect(Shortcut("ctrl+alt+up")?.symbols == "⌃⌥↑")
         #expect(Shortcut("cmd+shift+f5")?.symbols == "⇧⌘F5")
-        #expect(Shortcut("ctrl+alt+end")?.symbols == "⌃⌥↘")
+        // Home, End and the page keys are written as words; few people know their symbols.
+        #expect(Shortcut("ctrl+alt+end")?.symbols == "⌃⌥End")
+        #expect(Shortcut("ctrl+pageup")?.symbols == "⌃Page Up")
+        #expect(Shortcut("shift+home")?.symbols == "⇧Home")
+        #expect(Shortcut.Modifiers([.command, .control, .option]).symbols == "⌃⌥⌘")
         for text in ["ctrl+alt+shift+cmd+pagedown", "f15", "shift+home"] {
             #expect(Shortcut(text)?.text == text)
         }

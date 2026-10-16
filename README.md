@@ -40,8 +40,10 @@ Choose Settings… in the menu.
   menu bar icon or in the top-right corner, and can show the level as a percentage.
 - **Shortcuts.** Click a field, or focus it and press Space, then press the keys. A shortcut
   is any of Ctrl, Alt, Shift and Cmd with an arrow, page, Home, End or function key; a
-  function key can also stand alone. Delete removes a shortcut. The window says why when a
-  shortcut cannot be used. The app's shortcuts are paused only while a field is waiting for
+  function key can also stand alone. The field shows the modifiers as you hold them. Delete
+  removes a shortcut; so does the ✕ beside the field, and the arrow beside it puts back the
+  default. Both show while the pointer is over the field or the field has the focus. The
+  window says why when a shortcut cannot be used. The app's shortcuts are paused only while a field is waiting for
   keys, so that what you press is taken down and not acted on. Keys that macOS has a
   shortcut of its own on, such as Ctrl+Up for Mission Control, are turned down with a note
   saying so; to use them, switch macOS's shortcut off in System Settings → Keyboard →
