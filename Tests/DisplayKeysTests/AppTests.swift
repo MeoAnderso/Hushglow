@@ -827,6 +827,28 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
     }
 }
 
+/// An open menu keeps the main run loop in its event-tracking mode. What is scheduled for the
+/// default mode alone waits until the menu closes, so the app's delayed calls are scheduled for
+/// every mode.
+@MainActor
+@Suite struct DelayedCallTests {
+    @Test func accessIsReadAgainWhileAMenuIsOpen() {
+        // AppKit adds the event-tracking mode to the common modes when the application is made.
+        _ = NSApplication.shared
+        let access = AccessibilityAccess()
+        var readings = 0
+        access.onChange = { readings += 1 }
+        access.read(now: false)
+        // The run loop as a menu runs it; the first reading comes half a second later.
+        let limit = Date(timeIntervalSinceNow: 1.5)
+        while readings == 0, Date() < limit {
+            RunLoop.main.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        #expect(readings == 1)
+        NSObject.cancelPreviousPerformRequests(withTarget: access)
+    }
+}
+
 @MainActor
 @Suite struct PermissionHelperTests {
     private let screen = NSRect(x: 0, y: 0, width: 1920, height: 1050)

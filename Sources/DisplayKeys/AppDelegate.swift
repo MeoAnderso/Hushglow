@@ -250,9 +250,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         }
     }
 
+    /// In every mode of the run loop, as the other delayed calls are: a display replugged or
+    /// woken while a menu is open is looked for then, not when the menu closes.
     private func scheduleRefresh(after delay: TimeInterval) {
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(refreshDisplays), object: nil)
-        perform(#selector(refreshDisplays), with: nil, afterDelay: delay)
+        perform(#selector(refreshDisplays), with: nil, afterDelay: delay, inModes: [.common])
     }
 
     /// Rediscovers the displays and re-reads their state.

@@ -105,10 +105,14 @@ final class AccessibilityAccess: NSObject {
         read(now: false)
     }
 
-    private func read(now: Bool) {
+    /// The readings that follow are scheduled for every mode of the run loop, as the other
+    /// delayed calls are, so that an open menu does not hold them back.
+    func read(now: Bool) {
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(notify), object: nil)
         if now { notify() }
-        for delay in Self.rereadDelays { perform(#selector(notify), with: nil, afterDelay: delay) }
+        for delay in Self.rereadDelays {
+            perform(#selector(notify), with: nil, afterDelay: delay, inModes: [.common])
+        }
     }
 
     @objc private func notify() {
