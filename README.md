@@ -26,7 +26,8 @@ keyboard whose top row sends brightness and volume, hold fn with them. The choic
 once, the first time the app runs; Restore Defaults in Settings makes it again.
 
 Holding a shortcut keeps stepping, at the pace of the keyboard's own key repeat (System
-Settings → Keyboard). The menu bar item has sliders with a mute button for the mouse, and
+Settings → Keyboard). The menu bar item has sliders with a mute button for the mouse, which also
+move when you scroll over them, and
 an indicator appears under it as you change a level. The indicator also tells you when
 there is nothing to control, and when the display refuses a change (some picture modes
 lock brightness).

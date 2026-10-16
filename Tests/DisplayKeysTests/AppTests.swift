@@ -995,6 +995,52 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         #expect(slider.value == 56)
     }
 
+    /// Up and to the right are more, for the fingers and the wheel alike, whichever way the
+    /// scrolling setting turns the content; the larger of the two directions counts.
+    @Test func aScrollGoesTheWayTheFingersGo() {
+        // Natural scrolling: fingers to the right make the delta positive, fingers up negative.
+        #expect(LevelSlider.scrolled(x: 10, y: 0, isInverted: true) == 10)
+        #expect(LevelSlider.scrolled(x: 0, y: -10, isInverted: true) == 10)
+        // Without it, both come the other way round, as from a mouse's wheel turned away.
+        #expect(LevelSlider.scrolled(x: -10, y: 0, isInverted: false) == 10)
+        #expect(LevelSlider.scrolled(x: 0, y: 3, isInverted: false) == 3)
+        #expect(LevelSlider.scrolled(x: 2, y: -8, isInverted: true) == 8)
+        #expect(LevelSlider.scrolled(x: 0, y: 0, isInverted: true) == 0)
+    }
+
+    private func scroll(_ y: Int32, _ x: Int32 = 0, precise: Bool) throws -> NSEvent {
+        let event = try #require(
+            CGEvent(
+                scrollWheelEvent2Source: nil, units: precise ? .pixel : .line, wheelCount: 2, wheel1: y, wheel2: x,
+                wheel3: 0))
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: precise ? 1 : 0)
+        return try #require(NSEvent(cgEvent: event))
+    }
+
+    @Test func aWheelStepsAsTheKeysDoAndATrackpadFollowsTheFingers() throws {
+        var values: [Double] = []
+        slider.onChange = { values.append($0) }
+        slider.show(50)
+        let notch = try scroll(1, precise: false)
+        #expect(!notch.hasPreciseScrollingDeltas)
+        let up =
+            LevelSlider.scrolled(
+                x: notch.scrollingDeltaX, y: notch.scrollingDeltaY, isInverted: notch.isDirectionInvertedFromDevice) > 0
+        slider.scrollWheel(with: notch)
+        #expect(values == [up ? 56 : 44])
+
+        // On the trackpad, the distance the fingers travel over the track: here 200 points, so
+        // 20 points is a tenth of the range.
+        let swipe = try scroll(20, precise: true)
+        #expect(swipe.hasPreciseScrollingDeltas)
+        let before = slider.value
+        slider.scrollWheel(with: swipe)
+        let moved = LevelSlider.scrolled(
+            x: swipe.scrollingDeltaX, y: swipe.scrollingDeltaY, isInverted: swipe.isDirectionInvertedFromDevice)
+        #expect(abs(slider.value - (before + Double(moved) / 200 * 100)) < 0.001)
+        #expect(abs(moved) == 20)
+    }
+
     @Test func voiceOverCanReadAndChangeIt() {
         var values: [Double] = []
         slider.name = "Brightness"

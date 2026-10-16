@@ -171,6 +171,34 @@ final class LevelSlider: NSView {
         onChange?(newValue)
     }
 
+    // MARK: Scrolling
+
+    /// A scroll over the slider moves it, as one over macOS's own sliders does: a trackpad by
+    /// the distance the fingers travel, sideways or up and down, and a mouse's wheel one step a
+    /// notch. The glide that follows a swipe on a trackpad is left out, so that the knob stops
+    /// where the fingers do.
+    override func scrollWheel(with event: NSEvent) {
+        guard event.momentumPhase.isEmpty else { return }
+        let points = Self.scrolled(
+            x: event.scrollingDeltaX, y: event.scrollingDeltaY, isInverted: event.isDirectionInvertedFromDevice)
+        guard points != 0 else { return }
+        if event.hasPreciseScrollingDeltas {
+            change(to: value + Double(points / travel) * 100)
+            if event.phase == .ended { NSAccessibility.post(element: self, notification: .valueChanged) }
+        } else {
+            step(up: points > 0)
+        }
+    }
+
+    /// How far a scroll moves the slider, in points, more to the right or up: the larger of its
+    /// two directions, as the fingers or the wheel went. The scrolling setting in System
+    /// Settings turns the deltas round, and `isInverted` says when it has.
+    static func scrolled(x: CGFloat, y: CGFloat, isInverted: Bool) -> CGFloat {
+        let right = isInverted ? x : -x
+        let up = isInverted ? -y : y
+        return abs(right) > abs(up) ? right : up
+    }
+
     // MARK: The keyboard
 
     /// As with the system's own controls, only with Full Keyboard Access. A menu gives the
