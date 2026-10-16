@@ -222,7 +222,7 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
 }
 
 /// A shortcut drawn as a key cap, such as ⌃⌥↑.
-private final class KeyCap: NSView {
+private final class KeyCap: ContrastAwareView {
     private let shortcut: Shortcut
     private let text: NSAttributedString
     private let size: NSSize
@@ -244,7 +244,7 @@ private final class KeyCap: NSView {
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
         NSColor.tertiarySystemFill.setFill()
         path.fill()
-        NSColor.separatorColor.setStroke()
+        (increasesContrast ? NSColor.secondaryLabelColor : .separatorColor).setStroke()
         path.stroke()
         let size = text.size()
         text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2))

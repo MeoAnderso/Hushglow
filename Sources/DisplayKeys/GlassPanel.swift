@@ -104,9 +104,35 @@ final class FittedView: NSView {
     }
 }
 
+/// A view that draws itself and draws differently with Increase Contrast, and so draws again
+/// whenever that setting is switched on or off.
+class ContrastAwareView: NSView {
+    /// Whether Increase Contrast is on. Tests take pictures with it on through this.
+    static var contrastIsIncreased: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast }
+
+    var increasesContrast: Bool { Self.contrastIsIncreased() }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(contrastChanged),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("Views of the app are created in code")
+    }
+
+    @objc private func contrastChanged() {
+        needsDisplay = true
+    }
+}
+
 /// A faint rounded panel behind a group of rows. On glass, groups are set apart with a fill
 /// like this one and not with more glass.
-final class WellView: NSView {
+final class WellView: ContrastAwareView {
     /// A panel with `content` laid inside it, `insets` from its edges.
     convenience init(around content: NSView, insets: NSEdgeInsets) {
         self.init(frame: .zero)
@@ -121,9 +147,16 @@ final class WellView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
         NSColor.quaternarySystemFill.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+        path.fill()
+        // A fill this faint all but disappears for someone who needs more contrast.
+        if increasesContrast {
+            NSColor.separatorColor.setStroke()
+            path.stroke()
+        }
     }
+
 }
 
 /// Stack and grid views as the panels use them.

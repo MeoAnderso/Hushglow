@@ -119,14 +119,25 @@ private func clearPanel(_ frame: NSRect) -> NSPanel {
 @MainActor
 @Suite struct GlassWindowTests {
     /// Pictures of the Settings panel and the two notices over a page that is bright on one side
-    /// and dark on the other. Runs only when PREVIEW_DIR is set.
+    /// and dark on the other, in light and dark mode, and in both with the app's own parts as
+    /// Increase Contrast draws them. Runs only when PREVIEW_DIR is set.
     @Test func picturesOfTheWindows() async throws {
         guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
         let host = StubHost()
 
-        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+        // The last two with the app's own parts drawn as for Increase Contrast. The system's
+        // glass and controls do not follow without the setting itself.
+        let passes: [(NSAppearance.Name, Bool, String)] = [
+            (.darkAqua, false, "dark"), (.aqua, false, "light"), (.darkAqua, true, "dark-contrast"),
+            (.aqua, true, "light-contrast"),
+        ]
+        defer {
+            ContrastAwareView.contrastIsIncreased = { NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast }
+        }
+        for (appearance, contrast, name) in passes {
+            ContrastAwareView.contrastIsIncreased = { contrast }
             let settings = SettingsWindow(host: host).makeWindow()
             let welcome = WelcomeWindow(onTurnOn: {}, onDontAsk: {})
             let update = WelcomeWindow(onTurnOn: {}, onDontAsk: {})
@@ -151,7 +162,7 @@ private func clearPanel(_ frame: NSRect) -> NSPanel {
             try await Task.sleep(for: .milliseconds(1400))
 
             let picture = try photograph([updated, first, settings, backdropWindow], size: size)
-            try writePreview(picture, named: "windows-\(appearance == .aqua ? "light" : "dark")")
+            try writePreview(picture, named: "windows-\(name)")
             for window in [updated, first, settings, backdropWindow] { window.close() }
         }
     }

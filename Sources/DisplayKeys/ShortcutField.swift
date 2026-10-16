@@ -4,7 +4,7 @@ import DisplayKeysCore
 /// Shows a shortcut and records a new one: click it, or focus it and press Space, then press
 /// the keys. Delete removes the shortcut and Esc cancels. While it waits for keys it shows the
 /// modifiers that are held, as they are pressed.
-final class ShortcutField: NSView {
+final class ShortcutField: ContrastAwareView {
     private enum Key {
         static let escape: UInt16 = 53
         static let delete: UInt16 = 51
@@ -152,7 +152,8 @@ final class ShortcutField: NSView {
         // A translucent fill, so the field sits on the panel's glass and not as a slab over it.
         NSColor.tertiarySystemFill.setFill()
         frame.fill()
-        (isRecording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
+        let edge: NSColor = increasesContrast ? .secondaryLabelColor : .separatorColor
+        (isRecording ? NSColor.controlAccentColor : edge).setStroke()
         frame.lineWidth = isRecording ? 2 : 1
         frame.stroke()
 
