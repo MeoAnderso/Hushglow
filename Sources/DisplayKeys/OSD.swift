@@ -19,15 +19,25 @@ struct IndicatorLook: Equatable {
 /// The on-screen indicator: a small non-activating capsule, drawn by the app itself because
 /// the system indicator is private and changes between macOS releases. It is created on first
 /// use and uses one-shot delays, so it costs nothing while idle.
+///
+/// It grows into place and fades in as it appears, and shrinks a little and fades as it
+/// leaves. Both are Core Animation, played outside the app's process; with Reduce Motion it
+/// only fades. The capsule's shadow is a layer of its own for that reason: the window's
+/// shadow would stay at full strength while what casts it faded.
 @MainActor
 final class OSD: NSObject {
     static let size = NSSize(width: 250, height: 44)
     private static let margin: CGFloat = 12
+    /// Room around the capsule, inside the window, for its shadow.
+    static let shadowRoom: CGFloat = 24
     private static let visibleDuration: TimeInterval = 1.5
     private static let appearDuration: TimeInterval = 0.15
     private static let fadeDuration: TimeInterval = 0.25
-    /// How far the capsule travels as it appears.
-    private static let slide: CGFloat = 6
+    /// How large the capsule starts as it appears, and ends as it leaves.
+    static let appearScale: CGFloat = 0.9
+    static let leaveScale: CGFloat = 0.96
+    static let motionKey = "motion"
+    static let fadeKey = "fade"
     /// The strength of the glass in the see-through style.
     private static let seeThroughOpacity: CGFloat = 0.55
 
@@ -35,6 +45,8 @@ final class OSD: NSObject {
     var anchor: (() -> NSRect?)?
 
     private var panel: NSPanel?
+    /// The panel's content: the capsule and its shadow, which appear and leave together.
+    private(set) var stage: NSView?
     private var indicator: OSDView?
     private var look: IndicatorLook?
     /// What stays on screen for as long as its cause lasts, whenever nothing newer is shown.
@@ -65,30 +77,17 @@ final class OSD: NSObject {
         if look != self.look { rebuild(for: look) }
         guard let panel, let indicator else { return }
 
-        let wasVisible = panel.isVisible && panel.alphaValue > 0
+        let opacity = stage?.layer.map { $0.presentation()?.opacity ?? $0.opacity } ?? 0
+        let wasVisible = panel.isVisible && opacity > 0
         let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         indicator.showsPercentage = IndicatorSettings.showsPercentage
         indicator.show(indication, animated: wasVisible && moves)
 
-        let frame = NSRect(origin: restingOrigin(), size: Self.size)
-        if wasVisible {
-            panel.setFrame(frame, display: true)
-            // Replaces a fade that may be in flight.
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                panel.animator().alphaValue = 1
-            }
-        } else {
-            panel.alphaValue = 0
-            panel.setFrame(moves ? frame.offsetBy(dx: 0, dy: Self.slide) : frame, display: true)
-            panel.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = Self.appearDuration
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().alphaValue = 1
-                panel.animator().setFrame(frame, display: true)
-            }
-        }
+        let origin = restingOrigin()
+        panel.setFrameOrigin(NSPoint(x: origin.x - Self.shadowRoom, y: origin.y - Self.shadowRoom))
+        if !panel.isVisible { panel.orderFrontRegardless() }
+        // From wherever a leaving that is under way has got to.
+        appear(from: wasVisible ? opacity : 0, moves: moves)
         // Whatever was due for what was shown before is off, the end of its fade included.
         NSObject.cancelPreviousPerformRequests(withTarget: self)
         if indication != held { leave(#selector(timeIsUp), after: Self.visibleDuration) }
@@ -107,19 +106,77 @@ final class OSD: NSObject {
     }
 
     private func fadeOut() {
-        guard let panel else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.fadeDuration
-            panel.animator().alphaValue = 0
+        guard let layer = stage?.layer else { return }
+        let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let from = layer.presentation()?.opacity ?? layer.opacity
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = 0
+        layer.add(Self.fade(from: from, to: 0, duration: Self.fadeDuration), forKey: Self.fadeKey)
+        if moves {
+            let shrink = CABasicAnimation(keyPath: "transform")
+            shrink.fromValue = layer.presentation()?.transform ?? CATransform3DIdentity
+            shrink.toValue = scaledAboutCentre(Self.leaveScale)
+            shrink.duration = Self.fadeDuration
+            shrink.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            // Held at the end, until the panel goes; the model's transform stays the identity.
+            shrink.fillMode = .forwards
+            shrink.isRemovedOnCompletion = false
+            layer.add(shrink, forKey: Self.motionKey)
         }
+        CATransaction.commit()
         // The panel is taken away when the fade is over, unless something is shown before
         // then, which calls this off. The animation's own completion handler would do, but
         // with a menu open it is not called until the menu closes.
         leave(#selector(fadeIsOver), after: Self.fadeDuration)
     }
 
+    /// Fades the capsule in and, unless motion is reduced, lets it grow into place on a spring.
+    /// What is already fully there stays as it is.
+    private func appear(from opacity: Float, moves: Bool) {
+        guard let layer = stage?.layer else { return }
+        let transform = layer.presentation()?.transform ?? CATransform3DIdentity
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = 1
+        layer.removeAnimation(forKey: Self.fadeKey)
+        layer.removeAnimation(forKey: Self.motionKey)
+        // The presentation's opacity can stop a hair short of 1 at the end of a fade.
+        if opacity < 0.99 {
+            layer.add(Self.fade(from: opacity, to: 1, duration: Self.appearDuration), forKey: Self.fadeKey)
+        }
+        let start = opacity > 0 ? transform : scaledAboutCentre(Self.appearScale)
+        if moves, !CATransform3DIsIdentity(start) {
+            let grow = CASpringAnimation(perceptualDuration: 0.3, bounce: 0.2)
+            grow.keyPath = "transform"
+            grow.fromValue = start
+            grow.toValue = CATransform3DIdentity
+            grow.duration = grow.settlingDuration
+            layer.add(grow, forKey: Self.motionKey)
+        }
+        CATransaction.commit()
+    }
+
+    private static func fade(from: Float, to: Float, duration: TimeInterval) -> CABasicAnimation {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = from
+        fade.toValue = to
+        fade.duration = duration
+        fade.timingFunction = CAMediaTimingFunction(name: to > from ? .easeOut : .easeIn)
+        return fade
+    }
+
+    /// A view's layer turns about its corner; the capsule is to grow and shrink about its middle.
+    private func scaledAboutCentre(_ scale: CGFloat) -> CATransform3D {
+        let middle = stage.map { CGPoint(x: $0.bounds.midX, y: $0.bounds.midY) } ?? .zero
+        var transform = CATransform3DMakeTranslation(middle.x, middle.y, 0)
+        transform = CATransform3DScale(transform, scale, scale, 1)
+        return CATransform3DTranslate(transform, -middle.x, -middle.y, 0)
+    }
+
     @objc private func fadeIsOver() {
         panel?.orderOut(nil)
+        stage?.layer?.removeAnimation(forKey: Self.motionKey)
     }
 
     /// Under the menu bar item when that is asked for and its position is known, as macOS does
@@ -141,11 +198,14 @@ final class OSD: NSObject {
     private func rebuild(for look: IndicatorLook) {
         panel?.orderOut(nil)
         let frame = NSRect(origin: .zero, size: Self.size)
+        let room = Self.shadowRoom
+        let panelFrame = frame.insetBy(dx: -room, dy: -room).offsetBy(dx: room, dy: room)
         let panel = NSPanel(
-            contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+            contentRect: panelFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // The capsule casts a shadow of its own, which fades with it.
+        panel.hasShadow = false
         panel.level = .screenSaver
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
@@ -155,8 +215,16 @@ final class OSD: NSObject {
 
         let indicator = OSDView(frame: frame)
         indicator.isHighContrast = look.increasesContrast
-        panel.contentView = Self.capsule(around: indicator, look: look)
+        let stage = NSView(frame: panelFrame)
+        stage.wantsLayer = true
+        let capsuleFrame = frame.offsetBy(dx: room, dy: room)
+        stage.addSubview(CapsuleShadow(frame: capsuleFrame))
+        let capsule = Self.capsule(around: indicator, look: look)
+        capsule.setFrameOrigin(capsuleFrame.origin)
+        stage.addSubview(capsule)
+        panel.contentView = stage
         self.panel = panel
+        self.stage = stage
         self.indicator = indicator
         self.look = look
     }
@@ -219,6 +287,58 @@ final class OSD: NSObject {
     }
 }
 
+/// The shadow under the capsule, as the window's own would have cast it: soft and faint all
+/// round and a little lower than the capsule, with a fine darker edge. It is cut away under
+/// the capsule, which glass and the tints let show through.
+final class CapsuleShadow: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        let bounds = CGRect(origin: .zero, size: frame.size)
+        let capsule = CGPath(
+            roundedRect: bounds, cornerWidth: frame.height / 2, cornerHeight: frame.height / 2, transform: nil)
+        func shadow(radius: CGFloat, opacity: Float, offset: CGFloat) -> CALayer {
+            let layer = CALayer()
+            layer.frame = bounds
+            layer.shadowPath = capsule
+            layer.shadowColor = NSColor.black.cgColor
+            layer.shadowOpacity = opacity
+            layer.shadowRadius = radius
+            layer.shadowOffset = CGSize(width: 0, height: -offset)
+            return layer
+        }
+        let host = CALayer()
+        host.frame = bounds
+        host.addSublayer(shadow(radius: 8, opacity: 0.22, offset: 2))
+        // The edge: a ring whose outer half shows, the inner one being cut away below.
+        let edge = CAShapeLayer()
+        edge.frame = bounds
+        edge.path = capsule
+        edge.fillColor = nil
+        edge.strokeColor = NSColor(white: 0, alpha: 0.5).cgColor
+        edge.lineWidth = 2
+        host.addSublayer(edge)
+        // Everything around the capsule, and nothing inside it. A mask counts only what lies
+        // within its own frame, so it is given room for the whole shadow.
+        let room = OSD.shadowRoom
+        let outside = CAShapeLayer()
+        outside.frame = bounds.insetBy(dx: -room, dy: -room)
+        let around = CGMutablePath()
+        around.addRect(outside.bounds)
+        around.addPath(capsule, transform: CGAffineTransform(translationX: room, y: room))
+        outside.path = around
+        outside.fillRule = .evenOdd
+        host.mask = outside
+        // The view hosts its layers: AppKit then never asks it to draw.
+        layer = host
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("CapsuleShadow is created in code")
+    }
+}
+
 /// The indicator's marks: an icon with either a segmented level bar, one segment per coarse
 /// key step, or a short message when there is no level to show. The marks are light on a dark
 /// capsule and dark on a light one, with a soft halo so they read over anything.
@@ -235,7 +355,6 @@ final class OSDView: NSView {
     private static let barHeight: CGFloat = 8
     private static let segmentGap: CGFloat = 2
     private static let segmentRadius: CGFloat = 2
-    static let glideDuration: TimeInterval = 0.12
     static let glideKey = "glide"
 
     private(set) var indication = Indication.level(Feedback(kind: .brightness, fraction: 0))
@@ -441,15 +560,23 @@ final class OSDView: NSView {
         let width = litWidth(for: fraction)
         // A glide that is cut short goes on from where it had got to.
         let from = lit.presentation()?.bounds.width ?? lit.bounds.width
+        let isGliding = lit.animation(forKey: Self.glideKey) != nil
         lit.bounds = CGRect(x: 0, y: 0, width: width, height: Self.barHeight)
         guard glides else { return lit.removeAnimation(forKey: Self.glideKey) }
         guard from != width else { return }
-        let glide = CABasicAnimation(keyPath: "bounds.size.width")
+        lit.add(Self.glide(from: from, to: width, interrupting: isGliding), forKey: Self.glideKey)
+    }
+
+    /// The spring a step glides on: brisk, with a little give at the end. One that cuts into a
+    /// glide still under way has none, so that a held key moves the bar along steadily rather
+    /// than in a row of bounces.
+    static func glide(from: CGFloat, to: CGFloat, interrupting: Bool) -> CASpringAnimation {
+        let glide = CASpringAnimation(perceptualDuration: 0.25, bounce: interrupting ? 0 : 0.2)
+        glide.keyPath = "bounds.size.width"
         glide.fromValue = from
-        glide.toValue = width
-        glide.duration = Self.glideDuration
-        glide.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        lit.add(glide, forKey: Self.glideKey)
+        glide.toValue = to
+        glide.duration = glide.settlingDuration
+        return glide
     }
 
     // MARK: Symbols

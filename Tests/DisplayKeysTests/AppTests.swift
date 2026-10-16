@@ -138,7 +138,8 @@ import Testing
         #expect(class_getInstanceMethod(OSDView.self, selector) == class_getInstanceMethod(NSView.self, selector))
     }
 
-    /// A step is one layer changing its width, and Core Animation plays the way there.
+    /// A step is one layer changing its width, and Core Animation plays the way there, on a
+    /// spring that gives a little at the end.
     @Test func aStepGlidesFromWhereTheBarWas() throws {
         let view = view(level(.brightness, 0.5))
         // The bar is 182 points: sixteen segments of 9.5 with gaps of 2. Eight end at 90.
@@ -147,10 +148,19 @@ import Testing
 
         view.show(level(.brightness, 0.5625), animated: true)
         #expect(view.lit.bounds.width == 101.5)
-        let glide = try #require(view.lit.animation(forKey: OSDView.glideKey) as? CABasicAnimation)
+        let glide = try #require(view.lit.animation(forKey: OSDView.glideKey) as? CASpringAnimation)
         #expect(glide.keyPath == "bounds.size.width")
         #expect(glide.fromValue as? CGFloat == 90 && glide.toValue as? CGFloat == 101.5)
-        #expect(glide.duration == OSDView.glideDuration)
+        #expect(glide.duration == glide.settlingDuration && glide.duration < 1)
+
+        // A step that cuts into a glide still under way settles without overshooting, so that
+        // a held key moves the bar along steadily.
+        view.show(level(.brightness, 0.625), animated: true)
+        let next = try #require(view.lit.animation(forKey: OSDView.glideKey) as? CASpringAnimation)
+        #expect(next.toValue as? CGFloat == 113)
+        #expect(
+            OSDView.glide(from: 0, to: 10, interrupting: true).damping
+                > OSDView.glide(from: 0, to: 10, interrupting: false).damping)
 
         // With Reduce Motion, or when the indicator was not on screen, the bar is simply there.
         view.show(level(.brightness, 0.25), animated: false)

@@ -252,6 +252,65 @@ extension GlassWindowTests {
         #expect(!osd.isOnScreen)
     }
 
+    /// The indicator grows into place and fades in, on a spring, and shrinks a little and fades
+    /// as it leaves; with Reduce Motion it only fades. Each is a Core Animation animation on
+    /// the layer that holds the capsule and its shadow. A picture is taken part of the way in,
+    /// with the clock slowed. Runs only when PREVIEW_DIR is set, since it shows the indicator.
+    @Test func growsIntoPlaceAndShrinksAway() async throws {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let osd = OSD()
+        // Held, so that it stays however long the other tests keep the main thread busy.
+        osd.hold(.watchingKeys)
+        let layer = try #require(osd.stage?.layer)
+        let fadeIn = try #require(layer.animation(forKey: OSD.fadeKey) as? CABasicAnimation)
+        #expect(fadeIn.fromValue as? Float == 0 && fadeIn.toValue as? Float == 1)
+        if moves {
+            let grow = try #require(layer.animation(forKey: OSD.motionKey) as? CASpringAnimation)
+            let start = try #require(grow.fromValue as? CATransform3D)
+            #expect(abs(start.m11 - OSD.appearScale) < 0.001 && abs(start.m22 - OSD.appearScale) < 0.001)
+            #expect(CATransform3DIsIdentity(try #require(grow.toValue as? CATransform3D)))
+        }
+        for _ in 0..<100 where layer.animation(forKey: OSD.fadeKey) != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(osd.isOnScreen)
+
+        // Shown again once it has faded in, it does not fade in again; a spring still under way
+        // goes on to where it was going.
+        osd.hold(.watchingKeys)
+        #expect(layer.animation(forKey: OSD.fadeKey) == nil)
+        if let grow = layer.animation(forKey: OSD.motionKey) as? CASpringAnimation {
+            #expect(CATransform3DIsIdentity(try #require(grow.toValue as? CATransform3D)))
+        }
+
+        osd.release(.watchingKeys)
+        let fadeOut = try #require(layer.animation(forKey: OSD.fadeKey) as? CABasicAnimation)
+        #expect(fadeOut.toValue as? Float == 0 && layer.opacity == 0)
+        if moves {
+            let shrink = try #require(layer.animation(forKey: OSD.motionKey) as? CABasicAnimation)
+            #expect(abs((try #require(shrink.toValue as? CATransform3D)).m11 - OSD.leaveScale) < 0.001)
+        }
+        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(!osd.isOnScreen)
+
+        // Part of the way in, over the dusk sky, with the clock slowed twenty times.
+        layer.speed = 0.05
+        osd.show(.level(Feedback(kind: .brightness, fraction: 0.75)))
+        let panel = try #require(osd.stage?.window)
+        let frame = panel.frame.insetBy(dx: -40, dy: -40)
+        let backdrop = backdropWindow(frame, DuskView(frame: NSRect(origin: .zero, size: frame.size)))
+        backdrop.level = panel.level - 1
+        backdrop.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(1200))
+        try writePreview(try photograph([panel, backdrop], size: frame.size), named: "indicator-appearing")
+        layer.speed = 1
+        osd.timeIsUp()
+        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
+        backdrop.close()
+    }
+
     /// An open menu keeps the main run loop in its event-tracking mode, and whatever is
     /// scheduled for the default mode alone waits until the menu closes. An indicator that a
     /// key brings up meanwhile has to leave on time all the same. Runs only when PREVIEW_DIR
