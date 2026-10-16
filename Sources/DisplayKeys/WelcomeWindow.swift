@@ -5,8 +5,8 @@ import DisplayKeysCore
 /// keys switched off. It comes before any permission step and says why the app asks.
 ///
 /// It is a glass panel like Settings, with everything centred under the app's icon, and looks
-/// the same on both occasions. Each part is placed below the one before it at its measured
-/// height, so no two can overlap.
+/// the same on both occasions. The parts are stacked in one column, so each takes the height
+/// its text needs and no two can overlap.
 @MainActor
 final class WelcomeWindow: NSObject, NSWindowDelegate {
     enum Occasion {
@@ -52,32 +52,28 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
 
     // MARK: Layout
 
-    /// The window's content, also used on its own to check the layout in tests.
+    /// The window's content, also used on its own to check the layout in tests: one column,
+    /// centred, in which each part takes the height its text needs.
     func makeContentView(_ occasion: Occasion, keysAreActive: Bool) -> NSView {
-        let content = FlippedView(frame: NSRect(x: 0, y: 0, width: Self.width, height: 10))
         let inner = Self.width - Self.margin * 2
-        var y = GlassPanel.titleBarHeight + 6
+        var parts: [(view: NSView, gap: CGFloat)] = []
 
         /// Places a view below the ones before it, centred, and leaves a gap under it.
         func add(_ view: NSView, gap: CGFloat) {
-            view.setFrameOrigin(NSPoint(x: ((Self.width - view.frame.width) / 2).rounded(), y: y))
-            content.addSubview(view)
-            y += view.frame.height + gap
+            parts.append((view, gap))
         }
         func text(
             _ string: String, size: CGFloat = 13, weight: NSFont.Weight = .regular, color: NSColor = .labelColor
         ) -> NSTextField {
-            let label = NSTextField(wrappingLabelWithString: string)
+            let label = Layout.wrappingLabel(string, width: inner)
             label.font = .systemFont(ofSize: size, weight: weight)
             label.textColor = color
             label.alignment = .center
             label.isSelectable = false
-            let bounds = NSRect(x: 0, y: 0, width: inner, height: .greatestFiniteMagnitude)
-            label.frame.size = NSSize(width: inner, height: ceil(label.cell?.cellSize(forBounds: bounds).height ?? 0))
             return label
         }
 
-        let icon = NSImageView(frame: NSRect(x: 0, y: 0, width: Self.iconSide, height: Self.iconSide))
+        let icon = Layout.size(NSImageView(), NSSize(width: Self.iconSide, height: Self.iconSide))
         icon.image = NSApplication.shared.applicationIconImage
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.setAccessibilityElement(false)
@@ -102,12 +98,16 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         add(buttons(keysAreActive: keysAreActive), gap: 14)
         if occasion == .update, !keysAreActive {
             let box = NSButton(checkboxWithTitle: "Don’t ask again after updates", target: nil, action: nil)
-            box.sizeToFit()
             dontAskBox = box
             add(box, gap: 6)
         }
-        content.setFrameSize(NSSize(width: Self.width, height: y + 14))
-        return content
+
+        let body = Layout.column(parts.map(\.view), spacing: 0, alignment: .centerX)
+        for part in parts { body.setCustomSpacing(part.gap, after: part.view) }
+        // A stack leaves no room after its last part, so its gap goes into the margin.
+        body.edgeInsets = NSEdgeInsets(
+            top: GlassPanel.titleBarHeight + 6, left: 0, bottom: 14 + (parts.last?.gap ?? 0), right: 0)
+        return GlassPanel.content(body, width: Self.width)
     }
 
     /// What to say about the keyboard's own keys.
@@ -133,8 +133,7 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
             let button = NSButton(title: title, target: self, action: action)
             button.controlSize = .large
             button.keyEquivalent = key
-            button.sizeToFit()
-            button.frame.size.width = max(button.frame.width, minimumWidth)
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth).isActive = true
             return button
         }
         let row: [NSButton] =
@@ -144,15 +143,7 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
                 button("Not Now", #selector(dismiss), key: "\u{1b}", minimumWidth: 110),
                 button("Turn On Keyboard Keys…", #selector(turnOn), key: "\r", minimumWidth: 0),
             ]
-        let holder = NSView()
-        var x: CGFloat = 0
-        for button in row {
-            button.setFrameOrigin(NSPoint(x: x, y: 0))
-            holder.addSubview(button)
-            x = button.frame.maxX + 10
-        }
-        holder.setFrameSize(NSSize(width: x - 10, height: row.map(\.frame.height).max() ?? 0))
-        return holder
+        return Layout.row(row, spacing: 10)
     }
 
     /// The current shortcuts as rows on a faint panel, one row per control; nil when none is set.
@@ -162,37 +153,31 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
             ("Volume", "speaker.wave.2.fill", [.volumeDown, .volumeUp]),
             ("Mute", "speaker.slash.fill", [.mute]),
         ]
-        let rowHeight: CGFloat = 30
-        let holder = FlippedView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
-        var y: CGFloat = 8
+        var rows: [[NSView]] = []
         for control in controls {
             let shortcuts = control.actions.compactMap(ShortcutSettings.shortcut)
             guard !shortcuts.isEmpty else { continue }
 
-            let glyph = NSImageView(frame: NSRect(x: 12, y: y + 4, width: 20, height: 20))
+            let glyph = Layout.size(NSImageView(), NSSize(width: 20, height: 20))
             glyph.image = NSImage(systemSymbolName: control.symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
             glyph.contentTintColor = .secondaryLabelColor
-            holder.addSubview(glyph)
-
             let name = NSTextField(labelWithString: control.name)
-            name.frame = NSRect(x: 40, y: y + 6, width: 120, height: 18)
-            holder.addSubview(name)
-
-            var x = width - 12
-            for shortcut in shortcuts.reversed() {
-                let cap = KeyCap(shortcut)
-                x -= cap.frame.width
-                cap.setFrameOrigin(NSPoint(x: x, y: y + 4))
-                holder.addSubview(cap)
-                x -= 6
-            }
-            y += rowHeight
+            // The name takes the room the key caps leave.
+            name.setContentHuggingPriority(.defaultLow - 1, for: .horizontal)
+            rows.append([glyph, name, Layout.row(shortcuts.map(KeyCap.init), spacing: 6)])
         }
-        guard y > 8 else { return nil }
-        holder.setFrameSize(NSSize(width: width, height: y + 8))
-        holder.addSubview(WellView(frame: holder.bounds), positioned: .below, relativeTo: nil)
-        return holder
+        guard !rows.isEmpty else { return nil }
+        let grid = NSGridView(views: rows)
+        grid.columnSpacing = 8
+        grid.rowSpacing = 8
+        grid.yPlacement = .center
+        grid.rowAlignment = .none
+        grid.column(at: 0).width = 20
+        grid.column(at: 2).xPlacement = .trailing
+        let well = WellView(around: grid, insets: NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12))
+        well.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return well
     }
 
     // MARK: Actions
@@ -224,14 +209,18 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
 private final class KeyCap: NSView {
     private let shortcut: Shortcut
     private let text: NSAttributedString
+    private let size: NSSize
 
     init(_ shortcut: Shortcut) {
         self.shortcut = shortcut
         text = NSAttributedString(
             string: shortcut.symbols,
             attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor])
-        super.init(frame: NSRect(x: 0, y: 0, width: ceil(text.size().width) + 16, height: 22))
+        size = NSSize(width: ceil(text.size().width) + 16, height: 22)
+        super.init(frame: NSRect(origin: .zero, size: size))
     }
+
+    override var intrinsicContentSize: NSSize { size }
 
     required init?(coder: NSCoder) { nil }
 

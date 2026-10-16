@@ -219,37 +219,38 @@ final class PermissionHelper: NSObject {
         disc.setFrameOrigin(discOrigin)
         holder.addSubview(disc)
 
-        let caption = FlippedView(frame: NSRect(origin: .zero, size: captionSize))
         let close = NSButton(
             image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil) ?? NSImage(),
             target: self, action: #selector(dismiss))
         close.isBordered = false
         close.contentTintColor = .tertiaryLabelColor
         close.setAccessibilityLabel("Close")
-        close.frame = NSRect(x: captionSize.width - 32, y: (captionSize.height - 20) / 2, width: 20, height: 20)
-        caption.addSubview(close)
+        Layout.size(close, NSSize(width: 20, height: 20))
 
         let other = NSButton(title: "", target: self, action: #selector(showOtherWays))
         other.bezelStyle = .helpButton
         other.controlSize = .small
-        other.sizeToFit()
         other.setAccessibilityLabel("Other ways to add \(AppInfo.name)")
         other.toolTip = "Other ways to add \(AppInfo.name)"
-        other.setFrameOrigin(
-            NSPoint(x: close.frame.minX - 8 - other.frame.width, y: (captionSize.height - other.frame.height) / 2))
-        caption.addSubview(other)
 
-        func text(_ string: String, size: CGFloat, weight: NSFont.Weight, color: NSColor, y: CGFloat) {
+        func text(_ string: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {
             let label = NSTextField(labelWithString: string)
             label.font = .systemFont(ofSize: size, weight: weight)
             label.textColor = color
             label.lineBreakMode = .byTruncatingTail
-            label.frame = NSRect(
-                x: 20, y: y, width: other.frame.minX - 8 - 20, height: ceil(label.intrinsicContentSize.height))
-            caption.addSubview(label)
+            // The capsule keeps its size; a longer caption is cut short, not the buttons.
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            return label
         }
-        text("Drag \(AppInfo.name) into the list above", size: 13, weight: .semibold, color: .labelColor, y: 12)
-        text("If it is already listed, switch it on.", size: 11, weight: .regular, color: .secondaryLabelColor, y: 31)
+        let lines = Layout.column(
+            [
+                text("Drag \(AppInfo.name) into the list above", size: 13, weight: .semibold, color: .labelColor),
+                text("If it is already listed, switch it on.", size: 11, weight: .regular, color: .secondaryLabelColor),
+            ], spacing: 2)
+        let row = Layout.row([lines, other, close], spacing: 8)
+        row.setHuggingPriority(.defaultLow, for: .horizontal)
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 12)
+        let caption = Layout.holder(row, size: captionSize)
 
         let capsule = GlassPanel.backing(for: caption, cornerRadius: captionSize.height / 2)
         capsule.setFrameOrigin(NSPoint(x: left + discSide + 12, y: disc.frame.midY - captionSize.height / 2))

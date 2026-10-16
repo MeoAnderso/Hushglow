@@ -183,12 +183,18 @@ private func keyPress(_ shortcut: Shortcut, addingShift: Bool = false, isRepeat:
     return try keyPress(UInt16(shortcut.keyCode), flags, isRepeat: isRepeat)
 }
 
+/// Every view inside another, at any depth.
+@MainActor
+func descendants(of view: NSView) -> [NSView] {
+    view.subviews.flatMap { [$0] + descendants(of: $0) }
+}
+
 @MainActor
 @Suite struct SettingsWindowTests {
     @Test func hasAFieldForEveryAction() throws {
         let host = StubHost()
         let content = SettingsWindow(host: host).makeContentView()
-        let fields = content.subviews.compactMap { $0 as? ShortcutField }
+        let fields = descendants(of: content).compactMap { $0 as? ShortcutField }
         #expect(fields.count == Shortcut.Action.allCases.count)
         #expect(
             fields.allSatisfy { $0.isAccessibilityElement() && $0.accessibilityLabel()?.hasSuffix("shortcut") == true })
@@ -250,7 +256,7 @@ private func keyPress(_ shortcut: Shortcut, addingShift: Bool = false, isRepeat:
         let host = StubHost()
         let settings = SettingsWindow(host: host)
         let content = settings.makeContentView()
-        let field = try #require(content.subviews.compactMap { $0 as? ShortcutField }.first)
+        let field = try #require(descendants(of: content).compactMap { $0 as? ShortcutField }.first)
         #expect(host.pauses == 0 && host.resumes == 0)
 
         field.keyDown(with: try keyPress(49))  // Space starts recording
@@ -299,12 +305,29 @@ private func keyPress(_ shortcut: Shortcut, addingShift: Bool = false, isRepeat:
             asked += 1
             answer(false)
         }
-        let buttons = content.subviews.compactMap { $0 as? NSButton }
+        let buttons = descendants(of: content).compactMap { $0 as? NSButton }
         let button = try #require(buttons.first { $0.title == "Restore Defaults" })
         button.performClick(nil)
         #expect(asked == 1)
         // Restoring registers the shortcuts afresh; with the answer no, nothing was restored.
         #expect(host.resumes == 0)
+    }
+
+    /// The groups are stacks and grids, which give each part the room it needs; nothing
+    /// overlaps, and the content is as tall as its parts.
+    @Test func nothingOverlapsOrLeavesTheWindow() throws {
+        for keysAreActive in [false, true] {
+            let host = StubHost()
+            host.keyboardKeysAreActive = keysAreActive
+            let settings = SettingsWindow(host: host)
+            let content = settings.makeContentView()
+            #expect(!hasLayoutFault(content))
+            #expect(content.frame.height == ceil(content.fittingSize.height))
+            let restore = try #require(
+                descendants(of: content).compactMap { $0 as? NSButton }.first { $0.title == "Restore Defaults" })
+            let bottom = restore.convert(restore.bounds, to: content).maxY
+            #expect(bottom < content.bounds.maxY && bottom > content.bounds.maxY - 40)
+        }
     }
 
     @Test func readsEveryActionsShortcutFromTheSettings() {
@@ -316,7 +339,7 @@ private func keyPress(_ shortcut: Shortcut, addingShift: Bool = false, isRepeat:
     }
 
     private func messages(in content: NSView) -> [String] {
-        content.subviews.compactMap { ($0 as? NSTextField)?.stringValue }.filter { $0.hasPrefix("macOS uses") }
+        descendants(of: content).compactMap { ($0 as? NSTextField)?.stringValue }.filter { $0.hasPrefix("macOS uses") }
     }
 
     @Test func refusesAShortcutMacOSUsesItself() throws {
@@ -325,7 +348,7 @@ private func keyPress(_ shortcut: Shortcut, addingShift: Bool = false, isRepeat:
         // The fields call back into the window, so it has to outlive the key presses.
         let settings = SettingsWindow(host: host)
         let content = settings.makeContentView()
-        let field = try #require(content.subviews.compactMap { $0 as? ShortcutField }.first)
+        let field = try #require(descendants(of: content).compactMap { $0 as? ShortcutField }.first)
         let before = field.shortcut
         for (keyCode, flags) in [(UInt16(49), NSEvent.ModifierFlags()), (0x7E, [.control])] {
             field.keyDown(with: try keyPress(keyCode, flags))
@@ -478,16 +501,23 @@ private func keyPress(_ shortcut: Shortcut, addingShift: Bool = false, isRepeat:
     }
 }
 
-/// Whether two parts of a view overlap, or one reaches outside it. The faint panel behind a
-/// group of rows is meant to lie under them, and so is the helper's glow.
+/// Whether two parts of a view overlap, or one reaches outside it, at any depth of the views
+/// that only hold others. Parts are compared by the rectangles that layout lines up, which
+/// leave out the room a label or a symbol keeps around what it draws. The helper's glow is
+/// meant to lie under the rest.
 @MainActor
 private func hasLayoutFault(_ view: NSView) -> Bool {
-    let parts = view.subviews.filter { !($0 is WellView || $0 is AuraView) }
+    let parts = view.subviews.filter { !$0.isHidden && !($0 is AuraView) }
+    let rects = parts.map { $0.alignmentRect(forFrame: $0.frame) }
     for (index, part) in parts.enumerated() {
-        if !view.bounds.contains(part.frame) { return true }
-        if parts[(index + 1)...].contains(where: { $0.frame.intersects(part.frame) }) { return true }
-        let isPlainHolder = type(of: part) == NSView.self || part is FlippedView
-        if isPlainHolder, hasLayoutFault(part) { return true }
+        if !view.bounds.insetBy(dx: -0.5, dy: -0.5).contains(rects[index]) { return true }
+        if rects[(index + 1)...].contains(where: { $0.insetBy(dx: 0.5, dy: 0.5).intersects(rects[index]) }) {
+            return true
+        }
+        let isHolder =
+            type(of: part) == NSView.self || part is FlippedView || part is FittedView || part is NSStackView
+            || part is NSGridView || part is WellView
+        if isHolder, hasLayoutFault(part) { return true }
     }
     return false
 }
@@ -516,7 +546,7 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         for (occasion, keysAreActive) in Self.cases {
             let content = WelcomeWindow(onTurnOn: {}, onDontAsk: {})
                 .makeContentView(occasion, keysAreActive: keysAreActive)
-            #expect(content.subviews.count >= 4)
+            #expect(descendants(of: content).count >= 8)
             #expect(!hasLayoutFault(content))
         }
     }
@@ -526,9 +556,9 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         for (occasion, keysAreActive) in Self.cases {
             let content = WelcomeWindow(onTurnOn: {}, onDontAsk: {})
                 .makeContentView(occasion, keysAreActive: keysAreActive)
-            let texts = content.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
+            let texts = descendants(of: content).compactMap { ($0 as? NSTextField)?.stringValue }
             #expect(texts.contains { $0.hasPrefix("You can also change them, if you want.") })
-            #expect(content.subviews.contains { $0 is FlippedView && $0.subviews.contains { $0 is WellView } })
+            #expect(descendants(of: content).contains { $0 is WellView })
         }
     }
 
@@ -541,7 +571,7 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         }
         for occasion in [WelcomeWindow.Occasion.firstLaunch, .update] {
             let content = WelcomeWindow(onTurnOn: {}, onDontAsk: {}).makeContentView(occasion, keysAreActive: false)
-            let texts = content.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
+            let texts = descendants(of: content).compactMap { ($0 as? NSTextField)?.stringValue }
             #expect(texts.contains { $0.contains(AccessibilityAccess.listName) })
         }
     }
@@ -602,11 +632,6 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         #expect(frame == NSRect(x: 50, y: 380, width: 700, height: 600))
     }
 
-    /// Every view inside another, at any depth.
-    private func descendants(of view: NSView) -> [NSView] {
-        view.subviews.flatMap { [$0] + descendants(of: $0) }
-    }
-
     @Test func offersDraggingAndAWayWithoutIt() {
         var asked = 0
         let helper = PermissionHelper(onAddWithoutDragging: { asked += 1 })
@@ -624,7 +649,7 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         let texts = parts.compactMap { ($0 as? NSTextField)?.stringValue }
         #expect(texts.contains("Drag DisplayKeys into the list above"))
         // Inside the capsule nothing overlaps either.
-        let caption = parts.first { $0 is FlippedView && $0.subviews.contains { $0 is NSTextField } }
+        let caption = parts.first { type(of: $0) == NSView.self && $0.subviews.first is NSStackView }
         #expect(caption.map(hasLayoutFault) == false)
         let buttons = parts.compactMap { $0 as? NSButton }
         #expect(buttons.compactMap { $0.accessibilityLabel() }.sorted() == ["Close", "Other ways to add DisplayKeys"])

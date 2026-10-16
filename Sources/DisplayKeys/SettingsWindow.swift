@@ -27,8 +27,11 @@ protocol SettingsHost: AnyObject {
 @MainActor
 final class SettingsWindow: NSObject, NSWindowDelegate {
     private static let width: CGFloat = 460
-    private static let margin: CGFloat = 20
-    private static let controlLeft: CGFloat = 176
+    /// From the window's edges to the faint panels, and from a panel's edges to its rows.
+    private static let wellMargin: CGFloat = 14
+    private static let wellPadding: CGFloat = 18
+    /// The least width of the column of labels beside the controls.
+    private static let labelWidth: CGFloat = 136
 
     /// Called once the window has closed. Whoever holds this object can then let it go: the
     /// window and its controls are not kept for a Settings that may never be opened again.
@@ -36,6 +39,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     private unowned let host: any SettingsHost
     private var window: NSWindow?
+    private var content: FittedView?
     private var fields: [Shortcut.Action: ShortcutField] = [:]
     private var message: NSTextField?
     /// Why the last recorded shortcut was turned down; shown until the next attempt.
@@ -93,72 +97,82 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     // MARK: Layout
 
-    /// The window's content, also used on its own to check the layout in tests.
+    /// The window's content, also used on its own to check the layout in tests. Each group of
+    /// rows is a grid or a stack, so that it takes the room its text needs.
     func makeContentView() -> NSView {
-        let content = FlippedView(frame: NSRect(x: 0, y: 0, width: Self.width, height: 10))
-        var y = GlassPanel.titleBarHeight + 14
-        let inner = Self.width - Self.margin * 2
+        let wellWidth = Self.width - Self.wellMargin * 2
+        let rowWidth = wellWidth - Self.wellPadding * 2
 
-        /// Starts a titled group of rows; call the result when the rows are in, to set the
-        /// group apart on its own faint panel.
-        func section(_ title: String) -> () -> Void {
+        /// A titled group of rows on its own faint panel.
+        func section(_ title: String, _ rows: [NSView]) -> NSView {
             let label = NSTextField(labelWithString: title)
             label.font = .boldSystemFont(ofSize: 13)
-            label.frame = NSRect(x: Self.margin + 4, y: y, width: inner, height: 18)
-            content.addSubview(label)
-            y += 26
-            let top = y
-            y += 10
-            return {
-                let well = WellView(frame: NSRect(x: Self.margin - 6, y: top, width: inner + 12, height: y - top + 4))
-                content.addSubview(well, positioned: .below, relativeTo: nil)
-                y += 22
+            let well = WellView(
+                around: Layout.column(rows, spacing: 8),
+                insets: NSEdgeInsets(top: 12, left: Self.wellPadding, bottom: 12, right: Self.wellPadding))
+            well.widthAnchor.constraint(equalToConstant: wellWidth).isActive = true
+            let section = NSView()
+            for part in [label, well] {
+                part.translatesAutoresizingMaskIntoConstraints = false
+                section.addSubview(part)
             }
+            NSLayoutConstraint.activate([
+                label.topAnchor.constraint(equalTo: section.topAnchor),
+                label.leadingAnchor.constraint(equalTo: well.leadingAnchor, constant: 12),
+                well.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
+                well.leadingAnchor.constraint(equalTo: section.leadingAnchor),
+                well.trailingAnchor.constraint(equalTo: section.trailingAnchor),
+                well.bottomAnchor.constraint(equalTo: section.bottomAnchor),
+            ])
+            return section
         }
-        func rowLabel(_ title: String) {
-            let label = NSTextField(labelWithString: title)
-            label.frame = NSRect(x: Self.margin + 12, y: y + 5, width: Self.controlLeft - Self.margin - 20, height: 18)
-            content.addSubview(label)
+        /// Rows of a label and its controls. The labels share a column at least as wide as the
+        /// one in the other groups, so that the controls line up from one group to the next.
+        func form(_ rows: [(String, [NSView])], spacing: CGFloat) -> NSGridView {
+            let grid = NSGridView(
+                views: rows.map { title, controls in
+                    let label = NSTextField(labelWithString: title)
+                    label.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.labelWidth).isActive = true
+                    return [label] + controls
+                })
+            grid.columnSpacing = 8
+            grid.rowSpacing = spacing
+            grid.yPlacement = .center
+            grid.rowAlignment = .none
+            return grid
         }
         func checkbox(_ title: String, _ action: Selector) -> NSButton {
-            let box = NSButton(checkboxWithTitle: title, target: self, action: action)
-            box.frame = NSRect(x: Self.margin + 10, y: y, width: inner - 20, height: 20)
-            content.addSubview(box)
-            y += 26
-            return box
+            NSButton(checkboxWithTitle: title, target: self, action: action)
         }
         func popup(_ title: String, _ titles: [String], _ action: Selector) -> NSPopUpButton {
-            rowLabel(title)
-            let popup = NSPopUpButton(
-                frame: NSRect(x: Self.controlLeft, y: y, width: 240, height: 26), pullsDown: false)
+            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
             popup.addItems(withTitles: titles)
             popup.target = self
             popup.action = action
             popup.setAccessibilityLabel(title)
-            content.addSubview(popup)
-            y += 32
+            popup.widthAnchor.constraint(equalToConstant: 240).isActive = true
             return popup
         }
-        func note(_ text: String, height: CGFloat) -> NSTextField {
-            let label = NSTextField(wrappingLabelWithString: text)
+        func note() -> NSTextField {
+            let label = Layout.wrappingLabel("", width: rowWidth)
             label.font = .systemFont(ofSize: 11)
             label.textColor = .secondaryLabelColor
-            label.frame = NSRect(x: Self.margin + 12, y: y, width: inner - 24, height: height)
-            content.addSubview(label)
-            y += height + 8
             return label
         }
 
-        var close = section("Indicator")
-        stylePopup = popup("Style", IndicatorSettings.Style.allCases.map(\.title), #selector(indicatorChanged))
-        positionPopup = popup("Position", IndicatorSettings.Position.allCases.map(\.title), #selector(indicatorChanged))
-        percentageBox = checkbox("Show the level as a percentage", #selector(indicatorChanged))
-        close()
+        let stylePopup = popup("Style", IndicatorSettings.Style.allCases.map(\.title), #selector(indicatorChanged))
+        let positionPopup = popup(
+            "Position", IndicatorSettings.Position.allCases.map(\.title), #selector(indicatorChanged))
+        let percentageBox = checkbox("Show the level as a percentage", #selector(indicatorChanged))
+        self.stylePopup = stylePopup
+        self.positionPopup = positionPopup
+        self.percentageBox = percentageBox
+        let indicator = section(
+            "Indicator", [form([("Style", [stylePopup]), ("Position", [positionPopup])], spacing: 8), percentageBox])
 
-        close = section("Shortcuts")
+        var shortcutRows: [(String, [NSView])] = []
         for (index, action) in Shortcut.Action.allCases.enumerated() {
-            rowLabel(action.title)
-            let field = ShortcutField(frame: NSRect(x: Self.controlLeft, y: y, width: 200, height: 26))
+            let field = Layout.size(ShortcutField(frame: .zero), NSSize(width: 200, height: 26))
             field.title = "\(action.title) shortcut"
             field.validate = { [unowned self] in rejection(of: $0, for: action) }
             field.onMessage = { [unowned self] in show(message: $0) }
@@ -170,7 +184,6 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             field.onRecordingChange = { [unowned self] isRecording in
                 if isRecording { host.pauseShortcuts() } else { host.resumeShortcuts() }
             }
-            content.addSubview(field)
             fields[action] = field
 
             let clear = NSButton(
@@ -180,35 +193,40 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             clear.contentTintColor = .tertiaryLabelColor
             clear.tag = index
             clear.setAccessibilityLabel("Remove the \(action.title) shortcut")
-            clear.frame = NSRect(x: Self.controlLeft + 208, y: y + 1, width: 24, height: 24)
-            content.addSubview(clear)
-            y += 32
+            shortcutRows.append((action.title, [field, Layout.size(clear, NSSize(width: 24, height: 24))]))
         }
-        quarterStepsBox = checkbox("Also register each with Shift, for quarter steps", #selector(quarterStepsChanged))
-        message = note("", height: 28)
-        y -= 8
-        close()
+        let quarterStepsBox = checkbox(
+            "Also register each with Shift, for quarter steps", #selector(quarterStepsChanged))
+        self.quarterStepsBox = quarterStepsBox
+        let message = note()
+        // Room for two lines, so that a message coming or going moves nothing.
+        message.heightAnchor.constraint(greaterThanOrEqualToConstant: 28).isActive = true
+        self.message = message
+        let shortcuts = section("Shortcuts", [form(shortcutRows, spacing: 6), quarterStepsBox, message])
 
-        close = section("The keyboard’s own volume keys")
-        keysStatus = note("", height: 44)
-        let button = NSButton(title: "Turn On…", target: self, action: #selector(turnOnKeys))
-        button.frame = NSRect(x: Self.margin + 6, y: y, width: 110, height: 30)
-        content.addSubview(button)
-        keysButton = button
-        y += 36
-        askBox = checkbox("Ask again after an update", #selector(askChanged))
-        close()
+        let keysStatus = note()
+        self.keysStatus = keysStatus
+        let keysButton = NSButton(title: "Turn On…", target: self, action: #selector(turnOnKeys))
+        self.keysButton = keysButton
+        let askBox = checkbox("Ask again after an update", #selector(askChanged))
+        self.askBox = askBox
+        let keys = section("The keyboard’s own volume keys", [keysStatus, keysButton, askBox])
 
-        close = section("General")
-        loginBox = checkbox("Launch at login", #selector(loginChanged))
-        close()
+        let loginBox = checkbox("Launch at login", #selector(loginChanged))
+        self.loginBox = loginBox
+        let general = section("General", [loginBox])
 
         let restore = NSButton(title: "Restore Defaults", target: self, action: #selector(askToRestoreDefaults))
-        restore.frame = NSRect(x: Self.width - Self.margin - 150, y: y - 6, width: 156, height: 30)
-        content.addSubview(restore)
-        y += 40
+        let restoreRow = NSStackView()
+        restoreRow.setViews([restore], in: .trailing)
+        restoreRow.widthAnchor.constraint(equalToConstant: wellWidth).isActive = true
 
-        content.setFrameSize(NSSize(width: Self.width, height: y))
+        let body = Layout.column([indicator, shortcuts, keys, general, restoreRow], spacing: 20)
+        body.setCustomSpacing(14, after: general)
+        body.edgeInsets = NSEdgeInsets(
+            top: GlassPanel.titleBarHeight + 14, left: Self.wellMargin, bottom: 20, right: Self.wellMargin)
+        let content = GlassPanel.content(body, width: Self.width)
+        self.content = content
         reload()
         return content
     }
@@ -248,6 +266,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         loginBox?.title = isInstalled ? "Launch at login" : "Launch at login (move the app to Applications first)"
         loginBox?.state = SMAppService.mainApp.status == .enabled ? .on : .off
         refreshMessage()
+        // A line of text or a button that came or went changes the height the window needs.
+        if let content { GlassPanel.fit(window, to: content) }
     }
 
     private func show(message text: String?) {

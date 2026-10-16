@@ -30,13 +30,141 @@ enum GlassPanel {
         glass.contentView = content
         return glass
     }
+
+    /// A panel's content: `body` laid out inside it with Auto Layout, the given width, and as
+    /// tall as `body` needs. Call `fit` on it when what it shows may have changed height.
+    static func content(_ body: NSView, width: CGFloat) -> FittedView {
+        let content = FittedView(body: body, width: width)
+        content.fit()
+        return content
+    }
+
+    /// Makes a panel's window as tall as its content now needs, keeping its top edge in place.
+    static func fit(_ window: NSWindow?, to content: FittedView) {
+        content.fit()
+        guard let window else { return }
+        let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: content.frame.size))
+        guard frame.size != window.frame.size else { return }
+        let top = window.frame.maxY
+        window.setFrame(
+            NSRect(x: window.frame.minX, y: top - frame.height, width: frame.width, height: frame.height),
+            display: true)
+    }
+}
+
+/// A view that holds a body laid out with Auto Layout and takes the size the body asks for.
+/// The window and the glass around it place it by its frame, as they do any content view.
+final class FittedView: NSView {
+    private let width: CGFloat
+
+    init(body: NSView, width: CGFloat) {
+        self.width = width
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 10))
+        body.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(body)
+        // Just below required: for the moment between a change and the window taking the new
+        // height, the frame and the body may disagree without that being an error.
+        let bottom = body.bottomAnchor.constraint(equalTo: bottomAnchor)
+        bottom.priority = .init(999)
+        NSLayoutConstraint.activate([
+            body.topAnchor.constraint(equalTo: topAnchor),
+            body.leadingAnchor.constraint(equalTo: leadingAnchor),
+            body.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bottom,
+            body.widthAnchor.constraint(equalToConstant: width),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("FittedView is created in code")
+    }
+
+    override var isFlipped: Bool { true }
+
+    /// Takes the height the body now needs, and lays it out at once, so the frames of the parts
+    /// are right as soon as this returns.
+    func fit() {
+        layoutSubtreeIfNeeded()
+        setFrameSize(NSSize(width: width, height: ceil(fittingSize.height)))
+        layoutSubtreeIfNeeded()
+    }
 }
 
 /// A faint rounded panel behind a group of rows. On glass, groups are set apart with a fill
 /// like this one and not with more glass.
 final class WellView: NSView {
+    /// A panel with `content` laid inside it, `insets` from its edges.
+    convenience init(around content: NSView, insets: NSEdgeInsets) {
+        self.init(frame: .zero)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: topAnchor, constant: insets.top),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insets.left),
+            trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: insets.right),
+            bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: insets.bottom),
+        ])
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.quaternarySystemFill.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+    }
+}
+
+/// Stack and grid views as the panels use them.
+@MainActor
+enum Layout {
+    static func column(
+        _ views: [NSView], spacing: CGFloat, alignment: NSLayoutConstraint.Attribute = .leading
+    ) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.alignment = alignment
+        stack.spacing = spacing
+        return stack
+    }
+
+    static func row(_ views: [NSView], spacing: CGFloat) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = spacing
+        return stack
+    }
+
+    /// Text that wraps at the given width and is as tall as it needs.
+    static func wrappingLabel(_ text: String, width: CGFloat) -> NSTextField {
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.preferredMaxLayoutWidth = width
+        label.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return label
+    }
+
+    /// A view of a fixed size with `body` laid out to fill it.
+    static func holder(_ body: NSView, size: NSSize) -> NSView {
+        let holder = NSView(frame: NSRect(origin: .zero, size: size))
+        body.translatesAutoresizingMaskIntoConstraints = false
+        holder.addSubview(body)
+        NSLayoutConstraint.activate([
+            body.topAnchor.constraint(equalTo: holder.topAnchor),
+            body.leadingAnchor.constraint(equalTo: holder.leadingAnchor),
+            body.trailingAnchor.constraint(equalTo: holder.trailingAnchor),
+            body.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
+        ])
+        holder.layoutSubtreeIfNeeded()
+        return holder
+    }
+
+    /// Gives a view a fixed size, for views that do not say how large they are.
+    @discardableResult
+    static func size<View: NSView>(_ view: View, _ size: NSSize) -> View {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            view.widthAnchor.constraint(equalToConstant: size.width),
+            view.heightAnchor.constraint(equalToConstant: size.height),
+        ])
+        return view
     }
 }
