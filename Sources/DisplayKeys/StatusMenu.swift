@@ -100,7 +100,7 @@ final class MenuControls: NSObject {
     private let brightnessItem = NSMenuItem()
     private let volumeItem = NSMenuItem()
     private let hintItem = NSMenuItem()
-    private let accessItem = NSMenuItem(title: "Turn On Keyboard Volume Keys…", action: nil, keyEquivalent: "")
+    private let accessItem = NSMenuItem(title: "Turn On \(KeyboardKeys.name)…", action: nil, keyEquivalent: "")
 
     private unowned let host: any StatusMenuHost
     /// Whether the volume row shows the display as muted; kept here because a mute sent from

@@ -174,8 +174,8 @@ enum CLI {
         guard AppInfo.otherInstance != nil, let before = client.requestStatus() else { return fail(notRunning) }
         guard before.keyTapActive else {
             return fail(
-                "Watching keys needs the keyboard's keys turned on; choose \"Turn On Keyboard Volume Keys…\" in the "
-                    + "menu.")
+                "Watching keys needs the \(KeyboardKeys.phrase) turned on; choose \"Turn On "
+                    + "\(KeyboardKeys.name)…\" in the menu.")
         }
         client.watchKeys(seconds: seconds)
         print("Press the keys you want to identify. Watching for \(seconds) seconds; ordinary typing is not recorded.")
@@ -183,7 +183,7 @@ enum CLI {
         guard let seen = client.requestStatus()?.watchedKeys else { return fail("The app did not report back.") }
         if seen.isEmpty {
             return succeed(
-                "Nothing arrived. If you pressed the keyboard's volume keys, the keyboard does not send them in a "
+                "Nothing arrived. If you pressed the keyboard's brightness or volume keys, the keyboard does not send them in a "
                     + "form macOS passes on, so they cannot be used; give those actions a shortcut instead.")
         }
         return succeed(seen.map { "  \($0)" }.joined(separator: "\n"))
@@ -253,7 +253,7 @@ enum CLI {
     /// to the app, which proves the path the keyboard's own keys take. Volume is put back.
     private static func keyTest(_ before: AppStatus) -> Bool {
         guard before.keyTapActive, before.soundGoesToDisplay, let volume = before.volume else {
-            print("  Key test: skipped; it needs active keyboard keys and sound going to the display")
+            print("  Key test: skipped; it needs the \(KeyboardKeys.phrase) on and sound going to the display")
             return true
         }
         client.requestKeyTest()
@@ -292,15 +292,15 @@ enum CLI {
 
         if status.keyTapActive {
             lines.append(
-                "Keyboard volume keys: active, "
+                "\(KeyboardKeys.name): active, "
                     + (status.soundGoesToDisplay
                         ? "controlling the display" : "left to macOS while sound goes elsewhere"))
         } else if status.accessGranted {
-            lines.append("Keyboard volume keys: OFF, access is granted but the key tap could not start")
+            lines.append("\(KeyboardKeys.name): OFF, access is granted but the key tap could not start")
         } else {
             lines.append(
-                "Keyboard volume keys: OFF, not yet allowed under \(AccessibilityAccess.listName) "
-                    + "(choose \"Turn On Keyboard Volume Keys…\" in the menu)"
+                "\(KeyboardKeys.name): OFF, not yet allowed under \(AccessibilityAccess.listName) "
+                    + "(choose \"Turn On \(KeyboardKeys.name)…\" in the menu)"
                     + (status.askingIsDisabled ? "; asking is switched off" : ""))
         }
 

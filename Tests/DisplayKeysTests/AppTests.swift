@@ -536,8 +536,8 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         for (occasion, keysAreActive) in Self.cases {
             let content = WelcomeWindow(onTurnOn: {}, onDontAsk: {})
                 .makeContentView(occasion, keysAreActive: keysAreActive)
-            var expected = keysAreActive ? ["OK"] : ["Not Now", "Turn On Keyboard Keys…"]
-            if occasion == .update, !keysAreActive { expected.append("Don’t ask again after updates") }
+            var expected = keysAreActive ? ["OK"] : ["Not Now", "Turn On Brightness and Volume Keys…"]
+            if occasion == .update, !keysAreActive { expected.append("Ask again after updates") }
             #expect(buttons(in: content).map(\.title) == expected)
         }
     }
@@ -576,13 +576,17 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         }
     }
 
-    /// Presses a button of the update notice and returns what it led to, in order.
-    private func press(_ title: String, ticked: Bool, closingWithTheCloseButton: Bool = false) throws -> [String] {
+    /// Presses a button of the update notice, with its checkbox ticked or not, and returns what
+    /// it led to, in order.
+    private func press(_ title: String, askingAgain: Bool, closingWithTheCloseButton: Bool = false) throws -> [String] {
         var calls: [String] = []
         let welcome = WelcomeWindow(onTurnOn: { calls.append("turn on") }, onDontAsk: { calls.append("stop asking") })
         let window = welcome.makeWindow(.update, keysAreActive: false)
         let all = buttons(in: try #require(window.contentView))
-        try #require(all.first { $0.title.hasPrefix("Don’t ask") }).state = ticked ? .on : .off
+        let box = try #require(all.first { $0.title == "Ask again after updates" })
+        // Ticked to begin with, as in Settings: asking again is what happens unless it is switched off.
+        #expect(box.state == .on)
+        box.state = askingAgain ? .on : .off
         if closingWithTheCloseButton {
             window.close()
         } else {
@@ -592,12 +596,42 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
     }
 
     @Test func theButtonsDoWhatTheySay() throws {
-        #expect(try press("Turn On Keyboard Keys…", ticked: false) == ["turn on"])
-        #expect(try press("Not Now", ticked: false) == [])
-        #expect(try press("Not Now", ticked: true) == ["stop asking"])
-        #expect(try press("", ticked: true, closingWithTheCloseButton: true) == ["stop asking"])
-        // Asking for access turns asking back on, so a ticked checkbox has to be applied last.
-        #expect(try press("Turn On Keyboard Keys…", ticked: true) == ["turn on", "stop asking"])
+        let turnOn = "Turn On Brightness and Volume Keys…"
+        #expect(try press(turnOn, askingAgain: true) == ["turn on"])
+        #expect(try press("Not Now", askingAgain: true) == [])
+        #expect(try press("Not Now", askingAgain: false) == ["stop asking"])
+        #expect(try press("", askingAgain: false, closingWithTheCloseButton: true) == ["stop asking"])
+        // Asking for access turns asking back on, so an unticked checkbox has to be applied last.
+        #expect(try press(turnOn, askingAgain: false) == ["turn on", "stop asking"])
+    }
+
+    /// The menu, the notices, Settings and the command line call the keyboard's own keys by one
+    /// name, and the two checkboxes about asking again say the same thing.
+    @Test func theKeyboardsKeysHaveOneName() throws {
+        let host = StubHost()
+        let settings = descendants(of: SettingsWindow(host: host).makeContentView())
+        let notice = descendants(
+            of: WelcomeWindow(onTurnOn: {}, onDontAsk: {}).makeContentView(.update, keysAreActive: false))
+        let menu = MenuControls(host: StubMenuHost()).items.map(\.title)
+        func titles(_ views: [NSView]) -> [String] {
+            views.compactMap { ($0 as? NSButton)?.title ?? ($0 as? NSTextField)?.stringValue }
+        }
+        #expect(menu.contains("Turn On Brightness and Volume Keys…"))
+        #expect(titles(notice).contains("Turn On Brightness and Volume Keys…"))
+        #expect(titles(settings).contains("Brightness and volume keys"))
+        #expect(
+            titles(settings).contains("Ask again after updates") && titles(notice).contains("Ask again after updates"))
+        for text in titles(settings) + titles(notice) + menu {
+            #expect(
+                !text.contains("Keyboard Keys") && !text.contains("Volume Keys…") || text.contains("Brightness and"))
+            #expect(!text.lowercased().contains("don’t ask"))
+        }
+        let off = AppStatus(
+            version: "9.9.9", build: nil, displayControlAvailable: true, brightness: nil, volume: nil, muted: false,
+            accessGranted: false, askingIsDisabled: false, keyTapActive: false, soundGoesToDisplay: true,
+            quarterSteps: false, shortcuts: [], input: .init(), isWatchingKeys: false)
+        #expect(CLI.describe(off).contains("Brightness and Volume Keys: OFF"))
+        #expect(CLI.describe(off).contains("(choose \"Turn On Brightness and Volume Keys…\" in the menu)"))
     }
 }
 

@@ -48,7 +48,8 @@ Choose Settings… in the menu.
   Keyboard Shortcuts. "Also register each with Shift, for quarter steps" is off by default
   because macOS uses some of those combinations itself, Ctrl+Alt+Shift+arrows among them;
   when it is on, the window names the ones that clash.
-- **The keyboard's own volume keys.** Shows whether they are on, and turns them on.
+- **Brightness and volume keys**, the keyboard's own. Shows whether they are on, and turns
+  them on.
 - **Launch at login.**
 
 The indicator follows the system's accessibility settings: a solid capsule with Reduce
@@ -114,9 +115,9 @@ Running the tests with `PREVIEW_DIR` set to a folder also writes pictures of the
 the menu, Settings, the notices and the helper there. That puts windows and a menu on screen
 for a few seconds.
 
-### Turning on the keyboard's keys, and again after a rebuild
+### Turning on the brightness and volume keys, and again after a rebuild
 
-Choosing "Turn On Keyboard Keys…" opens that list in System Settings and puts a small helper
+Choosing "Turn On Brightness and Volume Keys…" opens that list in System Settings and puts a small helper
 under the window with the app's icon. Drag the icon into the list and the keys work. The
 helper's "?" button offers "Add Without Dragging", which has macOS ask with its own alert
 and add the app switched off.
@@ -124,9 +125,10 @@ and add the app switched off.
 macOS ties this access to the app's signature. Without a signing certificate every rebuild
 looks like a different app: System Settings still shows the switch as on, but macOS ignores
 it. The app handles this itself. The first time a new build runs without access, it explains
-what happened, and "Turn On Keyboard Keys…" first clears the stale entry, so the list is
-ready for the app to be dragged in again. The menu and Settings offer the same at any time,
-and "Don't ask again after updates" stops new builds from raising it.
+what happened, and "Turn On Brightness and Volume Keys…" first clears the stale entry, so
+the list is ready for the app to be dragged in again. The menu and Settings offer the same at
+any time, and unticking "Ask again after updates", in that notice or in Settings, stops new
+builds from raising it.
 
 To skip even that, create a signing certificate once: in Keychain Access choose
 Certificate Assistant → Create a Certificate, name it `DisplayKeys Dev`, with Identity Type

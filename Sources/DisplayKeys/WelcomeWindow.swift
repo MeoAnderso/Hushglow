@@ -22,7 +22,7 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
     private let onTurnOn: () -> Void
     private let onDontAsk: () -> Void
     private var window: NSWindow?
-    private var dontAskBox: NSButton?
+    private var askAgainBox: NSButton?
 
     init(onTurnOn: @escaping () -> Void, onDontAsk: @escaping () -> Void) {
         self.onTurnOn = onTurnOn
@@ -97,8 +97,9 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
 
         add(buttons(keysAreActive: keysAreActive), gap: 14)
         if occasion == .update, !keysAreActive {
-            let box = NSButton(checkboxWithTitle: "Don’t ask again after updates", target: nil, action: nil)
-            dontAskBox = box
+            let box = NSButton(checkboxWithTitle: KeyboardKeys.askAgain, target: nil, action: nil)
+            box.state = .on
+            askAgainBox = box
             add(box, gap: 6)
         }
 
@@ -115,15 +116,15 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         let list = AccessibilityAccess.listName
         switch (occasion, keysAreActive) {
         case (.firstLaunch, true):
-            return "The volume keys on your keyboard control the display too."
+            return "The \(KeyboardKeys.phrase) on your keyboard control the display too."
         case (.firstLaunch, false):
-            return "The volume keys on your keyboard work too once \(AppInfo.name) is switched on under \(list) "
-                + "in System Settings. It uses that only to receive those keys."
+            return "The \(KeyboardKeys.phrase) on your keyboard work too once \(AppInfo.name) is switched on "
+                + "under \(list) in System Settings. It uses that only for those keys."
         case (.update, true):
-            return "The volume keys on your keyboard control the display, as before."
+            return "The \(KeyboardKeys.phrase) on your keyboard control the display, as before."
         case (.update, false):
-            return "The volume keys on your keyboard are off until \(AppInfo.name) is added to \(list) again in "
-                + "System Settings. macOS grants that to one build of an app at a time."
+            return "The \(KeyboardKeys.phrase) on your keyboard are off until \(AppInfo.name) is added to "
+                + "\(list) again in System Settings. macOS grants that to one build at a time."
         }
     }
 
@@ -141,7 +142,7 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
             ? [button("OK", #selector(dismiss), key: "\r", minimumWidth: 110)]
             : [
                 button("Not Now", #selector(dismiss), key: "\u{1b}", minimumWidth: 110),
-                button("Turn On Keyboard Keys…", #selector(turnOn), key: "\r", minimumWidth: 0),
+                button("Turn On \(KeyboardKeys.name)…", #selector(turnOn), key: "\r", minimumWidth: 0),
             ]
         return Layout.row(row, spacing: 10)
     }
@@ -200,8 +201,8 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
     }
 
     private func applyCheckbox() {
-        if dontAskBox?.state == .on { onDontAsk() }
-        dontAskBox = nil
+        if askAgainBox?.state == .off { onDontAsk() }
+        askAgainBox = nil
     }
 }
 

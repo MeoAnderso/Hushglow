@@ -208,9 +208,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         self.keysStatus = keysStatus
         let keysButton = NSButton(title: "Turn On…", target: self, action: #selector(turnOnKeys))
         self.keysButton = keysButton
-        let askBox = checkbox("Ask again after an update", #selector(askChanged))
+        let askBox = checkbox(KeyboardKeys.askAgain, #selector(askChanged))
         self.askBox = askBox
-        let keys = section("The keyboard’s own volume keys", [keysStatus, keysButton, askBox])
+        let keys = section(KeyboardKeys.phrase.capitalizedFirst, [keysStatus, keysButton, askBox])
 
         let loginBox = checkbox("Launch at login", #selector(loginChanged))
         self.loginBox = loginBox
@@ -253,7 +253,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let isActive = host.keyboardKeysAreActive
         keysStatus?.stringValue =
             isActive
-            ? "On. Volume and brightness keys on the keyboard control the display."
+            ? "On. The \(KeyboardKeys.phrase) on the keyboard control the display."
             : "Off. Turning them on adds \(AppInfo.name) to \(AccessibilityAccess.listName) in System Settings, "
                 + "which it uses only to receive those keys. The shortcuts above work without it."
         keysButton?.isHidden = isActive
@@ -391,8 +391,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let alert = NSAlert()
         alert.messageText = "Restore the default settings?"
         alert.informativeText =
-            "The shortcuts and the indicator go back to how they were at first. The keyboard’s own keys and "
-            + "launch at login stay as they are."
+            "The shortcuts and the indicator go back to how they were at first. The \(KeyboardKeys.phrase) "
+            + "and launch at login stay as they are."
         alert.addButton(withTitle: "Restore Defaults")
         alert.addButton(withTitle: "Cancel")
         guard let window else { return answer(alert.runModal() == .alertFirstButtonReturn) }

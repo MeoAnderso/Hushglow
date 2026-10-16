@@ -22,6 +22,24 @@ enum AppInfo {
     }
 }
 
+/// What the app calls the keyboard's own brightness, volume and mute keys, and the choice of
+/// being asked about them again, so that the menu, the notices, Settings and the command line
+/// all say the same.
+enum KeyboardKeys {
+    /// As a title, in the menu and on buttons.
+    static let name = "Brightness and Volume Keys"
+    /// Within a sentence, and as a heading in Settings with its first letter capitalised.
+    static let phrase = "brightness and volume keys"
+    /// The checkbox, in Settings and in the notice after an update: ticked, a new build that
+    /// runs without access raises the subject again.
+    static let askAgain = "Ask again after updates"
+}
+
+extension String {
+    /// The text with its first letter capitalised, for a phrase used as a heading.
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
 enum ProcessMemory {
     /// The memory this process is charged for, in bytes: the figure Activity Monitor shows.
     static var footprint: UInt64? {
