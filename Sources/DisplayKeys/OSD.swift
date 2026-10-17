@@ -356,6 +356,9 @@ final class OSDView: NSView {
     private static let segmentGap: CGFloat = 2
     private static let segmentRadius: CGFloat = 2
     static let glideKey = "glide"
+    /// Core Animation files a transition under this key, whatever key it is added with.
+    static let replaceKey = kCATransition
+    static let popKey = "pop"
 
     private(set) var indication = Indication.level(Feedback(kind: .brightness, fraction: 0))
 
@@ -380,7 +383,8 @@ final class OSDView: NSView {
     private let message = TextMark()
 
     private var symbols: [String: NSImage] = [:]
-    private var shownSymbol: String?
+    /// The symbol on show, with the level its waves stand for when it has them.
+    private(set) var shownSymbol: String?
     /// The width the segments were last laid out for.
     private var barWidth: CGFloat = 0
 
@@ -460,7 +464,7 @@ final class OSDView: NSView {
             part.shadowRadius = 1.5
             part.shadowOffset = CGSize(width: 0, height: -0.5)
         }
-        showSymbol(scale: scale)
+        showSymbol(scale: scale, animated: glides)
 
         guard case .level(let feedback) = indication else {
             for part in [track, bar, percentage] { part.isHidden = true }
@@ -484,11 +488,16 @@ final class OSDView: NSView {
         fill(to: CGFloat(min(max(feedback.barPosition, 0), 1)), glides: glides)
     }
 
-    private func showSymbol(scale: CGFloat) {
-        let name = symbolName
-        guard name != shownSymbol else { return }
-        shownSymbol = name
-        guard let image = symbol(named: name) else {
+    /// Puts up the symbol for what is shown. Muting and unmuting, while the indicator is on
+    /// screen and things may move, trade the one speaker for the other with a crossfade and a
+    /// small pop, as macOS replaces one symbol with another.
+    private func showSymbol(scale: CGFloat, animated: Bool) {
+        let (name, waves) = symbolName
+        let key = waves.map { "\(name)@\($0)" } ?? name
+        guard key != shownSymbol else { return }
+        let previous = shownSymbol
+        shownSymbol = key
+        guard let image = symbol(named: name, waves: waves, key: key) else {
             icon.contents = nil
             return
         }
@@ -496,6 +505,25 @@ final class OSDView: NSView {
         icon.contents = image.layerContents(forContentsScale: scale)
         icon.frame = CGRect(
             origin: CGPoint(x: Self.iconLeft, y: ((bounds.height - image.size.height) / 2).rounded()), size: image.size)
+        guard animated, let previous, Self.isSpeaker(previous), Self.isSpeaker(key),
+            previous.hasPrefix(Self.mutedSpeaker) != key.hasPrefix(Self.mutedSpeaker)
+        else { return }
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.2
+        icon.add(fade, forKey: Self.replaceKey)
+        let pop = CASpringAnimation(perceptualDuration: 0.3, bounce: 0.35)
+        pop.keyPath = "transform.scale"
+        pop.fromValue = 0.6
+        pop.toValue = 1
+        pop.duration = pop.settlingDuration
+        icon.add(pop, forKey: Self.popKey)
+    }
+
+    private static let mutedSpeaker = "speaker.slash"
+
+    private static func isSpeaker(_ key: String) -> Bool {
+        key.hasPrefix("speaker.")
     }
 
     private func show(
@@ -581,36 +609,50 @@ final class OSDView: NSView {
 
     // MARK: Symbols
 
-    private var symbolName: String {
+    /// The symbol for what is shown, and for the volume how many of its three waves are lit.
+    /// The speaker keeps its width at every level: the waves it does not light are there,
+    /// faint, as in macOS's own volume indicator.
+    private var symbolName: (name: String, waves: Int?) {
         switch indication {
-        case .refused: return "lock.fill"
-        case .noDisplay: return "display.trianglebadge.exclamationmark"
-        case .watchingKeys: return "keyboard"
-        case .unsupported(.brightness): return "sun.max"
-        case .unsupported(.volume): return "speaker.slash"
+        case .refused: return ("lock.fill", nil)
+        case .noDisplay: return ("display.trianglebadge.exclamationmark", nil)
+        case .watchingKeys: return ("keyboard", nil)
+        case .unsupported(.brightness): return ("sun.max", nil)
+        case .unsupported(.volume): return ("speaker.slash", nil)
         case .level(let feedback):
             switch feedback.kind {
-            case .brightness: return "sun.max.fill"
-            case .muted: return "speaker.slash.fill"
-            case .volume:
-                switch feedback.fraction {
-                case ...0: return "speaker.fill"
-                case ..<0.34: return "speaker.wave.1.fill"
-                case ..<0.67: return "speaker.wave.2.fill"
-                default: return "speaker.wave.3.fill"
-                }
+            case .brightness: return ("sun.max.fill", nil)
+            case .muted: return ("speaker.slash.fill", nil)
+            case .volume: return ("speaker.wave.3.fill", Self.litWaves(for: feedback.fraction))
             }
         }
     }
 
-    private func symbol(named name: String) -> NSImage? {
-        if let cached = symbols[name] { return cached }
+    /// How many waves a volume lights: none when silent, all three from two thirds up.
+    static func litWaves(for fraction: Double) -> Int {
+        switch fraction {
+        case ...0: 0
+        case ..<0.34: 1
+        case ..<0.67: 2
+        default: 3
+        }
+    }
+
+    private func symbol(named name: String, waves: Int?, key: String) -> NSImage? {
+        if let cached = symbols[key] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
             .applying(NSImage.SymbolConfiguration(paletteColors: [ink]))
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration)
-        symbols[name] = image
-        return image
+        let image: NSImage? =
+            if let waves {
+                // The symbol lights a wave above 0, a second above a third and the last above
+                // two thirds; these values keep clear of those edges.
+                NSImage(
+                    systemSymbolName: name, variableValue: [0, 0.2, 0.5, 1][waves], accessibilityDescription: nil)
+            } else {
+                NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            }
+        symbols[key] = image?.withSymbolConfiguration(configuration)
+        return symbols[key]
     }
 }
 

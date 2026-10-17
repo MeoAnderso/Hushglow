@@ -168,6 +168,37 @@ import Testing
         #expect(view.lit.animation(forKey: OSDView.glideKey) == nil)
     }
 
+    /// The speaker is one symbol whose waves light with the level, so that it keeps its width.
+    @Test func theSpeakersWavesFollowTheLevel() {
+        #expect([0, 0.1, 0.33, 0.34, 0.66, 0.67, 1].map(OSDView.litWaves) == [0, 1, 1, 2, 2, 3, 3])
+        let view = view(level(.volume, 0.5))
+        #expect(view.shownSymbol == "speaker.wave.3.fill@2")
+        view.show(level(.volume, 0.9), animated: false)
+        #expect(view.shownSymbol == "speaker.wave.3.fill@3")
+        view.show(level(.volume, 0), animated: false)
+        #expect(view.shownSymbol == "speaker.wave.3.fill@0")
+        try? writePreviews(of: view, named: "indicator-silent")
+    }
+
+    /// Muting and unmuting on screen trade one speaker for the other with a crossfade and a
+    /// pop; anything else, or with Reduce Motion, simply changes.
+    @Test func mutingTradesOneSpeakerForTheOther() throws {
+        let view = view(level(.volume, 0.5))
+        let icon = try #require(view.layer?.sublayers?.first)
+        view.show(level(.muted, 0.5), animated: true)
+        #expect(view.shownSymbol == "speaker.slash.fill")
+        #expect(icon.animation(forKey: OSDView.replaceKey) is CATransition)
+        #expect(icon.animation(forKey: OSDView.popKey) is CASpringAnimation)
+
+        icon.removeAllAnimations()
+        view.show(level(.volume, 0.5), animated: false)
+        #expect(view.shownSymbol == "speaker.wave.3.fill@2" && icon.animationKeys() == nil)
+
+        // A level of another kind is no unmuting.
+        view.show(level(.brightness, 0.5), animated: true)
+        #expect(icon.animationKeys() == nil)
+    }
+
     @Test func aLevelAfterAMessageDoesNotGlide() {
         let view = view(level(.volume, 0.25))
         view.show(.noDisplay, animated: true)
