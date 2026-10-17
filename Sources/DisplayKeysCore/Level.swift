@@ -3,6 +3,10 @@
 public enum Level {
     public static let coarseSteps = 16
     public static let fineSteps = 64
+    /// How many steps the screen can be dimmed below the display's lowest brightness, and how
+    /// much darker each step makes it.
+    public static let dimSteps = 6
+    public static let dimPerStep = 0.1
 
     /// The next value one step up or down, snapped to the step grid.
     public static func stepped(_ value: DDC.Value, up: Bool, fine: Bool) -> Int {

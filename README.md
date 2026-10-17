@@ -70,6 +70,10 @@ Choose Settings… in the menu.
   them on.
 - **Keys change** the display under the pointer, or every display; this matters only with
   more than one display that answers DDC.
+- **Dim the screen below the display's lowest brightness.** On by default: once a display is
+  at its lowest, the brightness keys go on darkening its screen, in six steps of a tenth,
+  with a black layer over it that clicks go through and screenshots leave out. Brightness up
+  takes it off first, and so does moving the slider.
 - **Launch at login.**
 
 The indicator follows the system's accessibility settings: a solid capsule with Reduce

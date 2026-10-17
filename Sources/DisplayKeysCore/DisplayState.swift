@@ -24,6 +24,8 @@ public enum Indication: Equatable, Sendable {
     public var spoken: String {
         guard case .level(let feedback) = self else { return message ?? "" }
         return switch feedback.kind {
+        case .brightness where feedback.dimming > 0:
+            "Brightness \(feedback.percent) percent, dimmed \(Int((Double(feedback.dimming) * Level.dimPerStep * 100).rounded())) percent"
         case .brightness: "Brightness \(feedback.percent) percent"
         case .volume: "Volume \(feedback.percent) percent"
         case .muted: "Muted"
@@ -58,6 +60,8 @@ public struct Feedback: Equatable, Sendable {
     /// The end of the range a step pushed against and could not pass, so that it changed
     /// nothing; nil for anything else.
     public var pushedAgainst: End?
+    /// How many steps the screen is dimmed below the display's lowest brightness.
+    public var dimming = 0
 
     public init(kind: Kind, fraction: Double) {
         self.kind = kind
@@ -103,6 +107,9 @@ public struct DisplayState: Equatable, Sendable {
     public var contrast: DDC.Value?
     /// The input the display shows, as it reports it; nil when it does not say.
     public var input: Int?
+    /// How many steps the screen is dimmed below the display's lowest brightness, by an
+    /// overlay; the display itself is at its lowest meanwhile.
+    public var dimming = 0
 
     public init(
         brightness: DDC.Value?, volume: DDC.Value?, mute: DDC.Value?, contrast: DDC.Value? = nil,
@@ -147,14 +154,28 @@ public struct DisplayState: Equatable, Sendable {
     /// A value the cache already holds is not written again. With `trustingCache` off it is,
     /// for a command that says what the display is to hold: such a command can be applied
     /// while the cache may be out of date, as long as nothing is left out on the cache's word.
-    public mutating func apply(_ command: Command, trustingCache: Bool = true) -> Outcome? {
+    ///
+    /// Below the display's lowest brightness, a step down dims the screen instead, up to
+    /// `maximumDimming` steps; a step up takes the dimming off before it raises the display
+    /// again. A brightness set outright takes the dimming off.
+    public mutating func apply(_ command: Command, trustingCache: Bool = true, maximumDimming: Int = 0) -> Outcome? {
         let rewrites = !trustingCache && command.isAbsolute
         switch command {
         case .step(.brightness, let up, let fine):
             guard let value = brightness else { return nil }
-            return Self.noting(up, setBrightness(Level.stepped(value, up: up, fine: fine), rewrites: false))
+            if up, dimming > 0 {
+                dimming -= 1
+                return setBrightness(value.current, rewrites: false)
+            }
+            let stepped = Level.stepped(value, up: up, fine: fine)
+            if !up, stepped == value.current, dimming < maximumDimming {
+                dimming += 1
+                return setBrightness(value.current, rewrites: false)
+            }
+            return Self.noting(up, setBrightness(stepped, rewrites: false))
         case .set(.brightness, let percent):
             guard let value = brightness else { return nil }
+            dimming = 0
             return setBrightness(Level.value(percent: percent, maximum: value.maximum), rewrites: rewrites)
         case .step(.volume, let up, let fine):
             guard let value = volume else { return nil }
@@ -231,10 +252,9 @@ public struct DisplayState: Equatable, Sendable {
     private mutating func setBrightness(_ current: Int, rewrites: Bool) -> Outcome {
         let changed = rewrites || brightness?.current != current
         brightness?.current = current
-        return Outcome(
-            writes: changed ? [Write(.brightness, current)] : [],
-            feedback: Feedback(kind: .brightness, value: brightness ?? DDC.Value(current: 0, maximum: 0))
-        )
+        var feedback = Feedback(kind: .brightness, value: brightness ?? DDC.Value(current: 0, maximum: 0))
+        feedback.dimming = dimming
+        return Outcome(writes: changed ? [Write(.brightness, current)] : [], feedback: feedback)
     }
 
     private mutating func setContrast(_ current: Int, rewrites: Bool) -> Outcome {

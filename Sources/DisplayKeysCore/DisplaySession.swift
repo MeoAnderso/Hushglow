@@ -38,6 +38,11 @@ public final class DisplaySession<Transport: DisplayTransport> {
 
     public let display: Transport.Handle
     public private(set) var state: DisplayState
+    /// How many steps the screen may be dimmed below the display's lowest brightness; 0 when
+    /// dimming is off.
+    var maximumDimming = 0 {
+        didSet { state.dimming = min(state.dimming, maximumDimming) }
+    }
 
     private let transport: Transport
     private let queue: DispatchQueue
@@ -147,7 +152,8 @@ public final class DisplaySession<Transport: DisplayTransport> {
 
     private func applyNow(_ command: Command, trustingCache: Bool = true) -> Feedback? {
         let before = state
-        guard let outcome = state.apply(command, trustingCache: trustingCache) else { return nil }
+        guard let outcome = state.apply(command, trustingCache: trustingCache, maximumDimming: maximumDimming)
+        else { return nil }
         let time = now()
         for write in outcome.writes {
             writer.submit(display, write.feature, write.value)
@@ -168,7 +174,7 @@ public final class DisplaySession<Transport: DisplayTransport> {
 
     private func previewResult(of command: Command) -> Feedback? {
         var expected = preview ?? state
-        let feedback = expected.apply(command)?.feedback
+        let feedback = expected.apply(command, maximumDimming: maximumDimming)?.feedback
         preview = expected
         return feedback
     }

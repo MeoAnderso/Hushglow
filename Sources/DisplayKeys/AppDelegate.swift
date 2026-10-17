@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     private let osd = OSD()
     private let announcer = Announcer()
     private let feedbackSound = FeedbackSound()
+    private let dimmer = Dimmer()
     private let keyboard = KeyboardInput()
     private let systemEvents = SystemEvents()
     private var statusMenu: StatusMenu?
@@ -91,6 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         }
         // Plugging a display in produces a burst of these; act once it is over.
         systemEvents.onDisplaysReconfigured = { [unowned self] in
+            // A screen that moved or changed size takes its overlay with it.
+            updateDimming()
             scheduleRefresh(after: Self.reconfigurationSettleDelay)
             // Which display is the main one may have changed already.
             keyboard.updateRouting()
@@ -144,8 +147,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         }
         let screen = displays.answering(command, to: targets)?.identity?.screen
         displays.apply(command, to: targets) { [unowned self] feedback, isFinal in
-            // Mute may have changed, from the menu as from anywhere else.
-            if isFinal { statusMenu?.updateIcon() }
+            // Mute may have changed, from the menu as from anywhere else; so may the dimming.
+            if isFinal {
+                statusMenu?.updateIcon()
+                if command.control == .brightness { updateDimming() }
+            }
             // What the menu asks for stops here. Its sliders are ahead of the display as it
             // is, and are not to be moved under the mouse.
             guard showOSD else { return }
@@ -171,6 +177,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     private func indicate(_ indication: Indication, on screen: NSScreen? = nil) {
         osd.show(indication, on: screen)
         announcer.announce(indication)
+    }
+
+    // MARK: Dimming
+
+    /// Dims each screen as far as its display's state says, and no further.
+    private func updateDimming() {
+        dimmer.dim(
+            displays?.sessions.compactMap { session in
+                session.display.identity?.screen.map { ($0, session.state.dimming) }
+            } ?? [])
+    }
+
+    /// Switches dimming below the lowest brightness on or off; off takes any dimming away.
+    func dimmingChanged() {
+        displays?.maximumDimming = DimmingSettings.maximumSteps
+        updateDimming()
     }
 
     // MARK: Which display
@@ -302,9 +324,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
                 MainActor.assumeIsolated { self.scheduleRefresh(after: 1) }
             }
         }
+        displays.maximumDimming = DimmingSettings.maximumSteps
         displays.onChange = { [unowned self] in
             statusMenu?.displaysChanged()
             keyboard.updateRouting()
+            updateDimming()
         }
         displays.onMismatch = { [unowned self] in displayDisagreed($0) }
         displays.onRead = { [unowned self] features, duration in

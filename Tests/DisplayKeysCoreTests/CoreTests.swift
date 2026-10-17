@@ -251,6 +251,34 @@ import Testing
         #expect(muted.apply(.set(.volume, percent: 100))?.feedback.pushedAgainst == nil)
     }
 
+    /// Below the display's lowest brightness a step down dims the screen, to the most dimming
+    /// allowed, and only then is pushed against the end; a step up takes the dimming off first,
+    /// and a brightness set outright takes it off.
+    @Test func dimsBelowTheLowestBrightness() {
+        var state = DisplayState(brightness: DDC.Value(current: 6, maximum: 100), volume: nil, mute: nil)
+        let down = Command.step(.brightness, up: false, fine: false)
+        #expect(state.apply(down, maximumDimming: 2)?.writes == [.init(.brightness, 0)])
+        let first = state.apply(down, maximumDimming: 2)
+        #expect(first?.writes == [] && first?.feedback.dimming == 1 && first?.feedback.pushedAgainst == nil)
+        #expect(state.apply(down, maximumDimming: 2)?.feedback.dimming == 2)
+        let deepest = state.apply(down, maximumDimming: 2)
+        #expect(deepest?.feedback.dimming == 2 && deepest?.feedback.pushedAgainst == .bottom)
+        #expect(Indication.level(deepest!.feedback).spoken == "Brightness 0 percent, dimmed 20 percent")
+
+        let up = Command.step(.brightness, up: true, fine: false)
+        #expect(state.apply(up, maximumDimming: 2)?.writes == [] && state.dimming == 1)
+        #expect(state.apply(up, maximumDimming: 2)?.writes == [] && state.dimming == 0)
+        #expect(state.apply(up, maximumDimming: 2)?.writes == [.init(.brightness, 6)])
+
+        state.dimming = 2
+        #expect(state.apply(.set(.brightness, percent: 30), maximumDimming: 2)?.writes == [.init(.brightness, 30)])
+        #expect(state.dimming == 0)
+
+        // With dimming off, the lowest brightness is the end, as before.
+        var plain = DisplayState(brightness: DDC.Value(current: 0, maximum: 100), volume: nil, mute: nil)
+        #expect(plain.apply(down)?.feedback.pushedAgainst == .bottom && plain.dimming == 0)
+    }
+
     @Test func contrastStepsAndIsSetLikeBrightness() {
         var state = DisplayState(
             brightness: DDC.Value(current: 50, maximum: 100), volume: nil, mute: nil,

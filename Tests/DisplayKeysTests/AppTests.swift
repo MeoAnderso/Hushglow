@@ -199,6 +199,19 @@ import Testing
         #expect(icon.animationKeys() == nil)
     }
 
+    /// Below the display's lowest brightness the sun is a dimmer one.
+    @Test func aDimmedScreenShowsADimmerSun() {
+        var feedback = Feedback(kind: .brightness, fraction: 0)
+        feedback.dimming = 2
+        let view = view(.level(feedback))
+        #expect(view.shownSymbol == "sun.min")
+        view.show(level(.brightness, 0), animated: false)
+        #expect(view.shownSymbol == "sun.max.fill")
+        // The overlay grows darker a tenth at a time, and no darker than six tenths.
+        #expect(Dimmer.opacity(for: 0) == 0 && abs(Dimmer.opacity(for: 3) - 0.3) < 0.0001)
+        #expect(abs(Dimmer.opacity(for: 10) - 0.6) < 0.0001)
+    }
+
     @Test func aLevelAfterAMessageDoesNotGlide() {
         let view = view(level(.volume, 0.25))
         view.show(.noDisplay, animated: true)
@@ -240,6 +253,7 @@ final class StubHost: SettingsHost {
     func resumeShortcuts() { resumes += 1 }
     func canRegister(_ shortcut: Shortcut) -> Bool { !refusesEverything }
     func previewIndicator() {}
+    func dimmingChanged() {}
 }
 
 @MainActor

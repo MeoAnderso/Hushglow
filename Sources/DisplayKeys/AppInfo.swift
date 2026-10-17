@@ -193,6 +193,18 @@ enum ControlSettings {
     }
 }
 
+/// Whether the brightness keys go on dimming the screen once the display is at its lowest.
+enum DimmingSettings {
+    /// On unless switched off.
+    static var isOn: Bool {
+        get { AppInfo.defaults.object(forKey: "dimming.isOn") as? Bool ?? true }
+        set { AppInfo.defaults.set(newValue, forKey: "dimming.isOn") }
+    }
+
+    /// How many steps a screen may be dimmed, as the displays take it.
+    static var maximumSteps: Int { isOn ? Level.dimSteps : 0 }
+}
+
 /// How the on-screen indicator looks and where it appears.
 enum IndicatorSettings {
     enum Style: String, CaseIterable {

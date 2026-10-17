@@ -495,6 +495,20 @@ private final class Recorder {
         #expect(transport.takeEvents().first == "get brightness")
     }
 
+    /// Dimming is as deep as the displays allow; switching it off takes away what there is.
+    @Test func dimmingFollowsWhatTheDisplaysAllow() async {
+        transport.change(.brightness, to: 0)
+        press(.set(.brightness, percent: 0))
+        await settle()
+        _ = transport.takeEvents()
+        displays.maximumDimming = 3
+        for _ in 0..<5 { press(.step(.brightness, up: false, fine: false)) }
+        #expect(displays.primary?.dimming == 3)
+        #expect(!transport.takeEvents().contains { $0.hasPrefix("set") })
+        displays.maximumDimming = 0
+        #expect(displays.primary?.dimming == 0)
+    }
+
     @Test func readsTheDisplayForTheCommandLineAndLeavesTheCacheAlone() async {
         transport.change(.brightness, to: 80)
         let recorder = recorder

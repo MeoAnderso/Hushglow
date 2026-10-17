@@ -19,6 +19,8 @@ protocol SettingsHost: AnyObject {
     var shortcutsUsedByMacOS: [Shortcut] { get }
     /// Shows the indicator, so a change to its look can be seen at once.
     func previewIndicator()
+    /// Dimming below the lowest brightness was switched on or off.
+    func dimmingChanged()
 }
 
 /// The Settings window: the indicator's look, the shortcuts, the keyboard's own keys and
@@ -51,6 +53,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private var askBox: NSButton?
     private var loginBox: NSButton?
     private var keysChangePopup: NSPopUpButton?
+    private var dimmingBox: NSButton?
     private var stylePopup: NSPopUpButton?
     private var positionPopup: NSPopUpButton?
     private var percentageBox: NSButton?
@@ -222,7 +225,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             "With several displays, keys change", ControlSettings.Target.allCases.map(\.title),
             #selector(keysChangeChanged))
         self.keysChangePopup = keysChangePopup
-        let general = section("General", [form([("Keys change", [keysChangePopup])], spacing: 8), loginBox])
+        let dimmingBox = checkbox("Dim the screen below the display’s lowest brightness", #selector(dimmingChanged))
+        self.dimmingBox = dimmingBox
+        let general = section(
+            "General", [form([("Keys change", [keysChangePopup])], spacing: 8), dimmingBox, loginBox])
 
         let restore = NSButton(title: "Restore Defaults", target: self, action: #selector(askToRestoreDefaults))
         let restoreRow = NSStackView()
@@ -254,6 +260,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         percentageBox?.state = IndicatorSettings.showsPercentage ? .on : .off
         keysChangePopup?.selectItem(
             at: ControlSettings.Target.allCases.firstIndex(of: ControlSettings.keysChange) ?? 0)
+        dimmingBox?.state = DimmingSettings.isOn ? .on : .off
 
         for (action, control) in controls {
             control.shortcut = ShortcutSettings.shortcut(for: action)
@@ -407,6 +414,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         ControlSettings.keysChange = ControlSettings.Target.allCases[max(sender.indexOfSelectedItem, 0)]
     }
 
+    @objc private func dimmingChanged(_ sender: NSButton) {
+        DimmingSettings.isOn = sender.state == .on
+        host.dimmingChanged()
+    }
+
     @objc private func turnOnKeys() {
         host.enableKeyboardKeys()
     }
@@ -461,6 +473,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         IndicatorSettings.position = .underMenuBarIcon
         IndicatorSettings.showsPercentage = false
         ControlSettings.keysChange = .pointer
+        DimmingSettings.isOn = true
+        host.dimmingChanged()
         show(message: nil)
         reload()
         applyShortcuts()

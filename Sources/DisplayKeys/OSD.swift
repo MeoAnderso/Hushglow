@@ -664,6 +664,8 @@ final class OSDView: NSView {
         case .unsupported(.input): return ("rectangle.connected.to.line.below", nil)
         case .level(let feedback):
             switch feedback.kind {
+            // Below the display's lowest brightness, a dimmer sun.
+            case .brightness where feedback.dimming > 0: return ("sun.min", nil)
             case .brightness: return ("sun.max.fill", nil)
             case .muted: return ("speaker.slash.fill", nil)
             case .volume: return ("speaker.wave.3.fill", Self.litWaves(for: feedback.fraction))

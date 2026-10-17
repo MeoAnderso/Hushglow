@@ -81,6 +81,11 @@ public final class Displays<Transport: DisplayTransport> {
 
     /// One per display that answers DDC, in the order the displays were found.
     public private(set) var sessions: [DisplaySession<Transport>] = []
+    /// How many steps a screen may be dimmed below its display's lowest brightness; 0 turns
+    /// dimming off, and takes off any there is.
+    public var maximumDimming = 0 {
+        didSet { for session in sessions { session.maximumDimming = maximumDimming } }
+    }
     /// Supersedes discoveries that are still in flight.
     private var generation = 0
     /// Counts commands per control, so that one applied while the displays were being looked
@@ -213,9 +218,11 @@ public final class Displays<Transport: DisplayTransport> {
             answeredNothing: { [weak self] in self?.refresh() })
         let old = sessions
         sessions = found.filter(\.1.isControllable).map { display, state in
-            DisplaySession(
+            let session = DisplaySession(
                 display: display, state: state, transport: transport, queue: queue, timing: timing, now: now,
                 writer: writer, owner: owner)
+            session.maximumDimming = maximumDimming
+            return session
         }
         // A command applied while the displays were being read may be missing from the reading.
         let overtaken = Set(Command.Control.allCases.filter { commandCounts[$0] != startCounts[$0] })
