@@ -7,6 +7,8 @@ import DisplayKeysCore
 final class KeyboardInput {
     /// A key or shortcut asked for this command.
     var onCommand: ((Command) -> Void)?
+    /// A shortcut was pressed, as a press and at each repeat.
+    var onShortcut: ((Shortcut.Action) -> Void)?
     /// What deciding about a media key depends on; nil while display control is unavailable.
     /// It is asked for only by `updateRouting`.
     var routingContext: (() -> KeyRouting.Context?)?
@@ -135,6 +137,7 @@ final class KeyboardInput {
         input.shortcutPresses += 1
         input.record("shortcut \(action.rawValue)")
         log.debug("Shortcut \(action.rawValue, privacy: .public)")
+        onShortcut?(action)
         onCommand?(action.command(fine: fine))
     }
 

@@ -662,8 +662,12 @@ func descendants(of view: NSView) -> [NSView] {
         #expect(!keyboard.takeShortcut(from: try keyPress(shortcut)))
         #expect(commands.isEmpty)
 
+        var pressed: [Shortcut.Action] = []
+        keyboard.onShortcut = { pressed.append($0) }
         keyboard.menuIsOpen = true
         #expect(keyboard.takeShortcut(from: try keyPress(shortcut)))
+        // A notice that is open hears of it, to light its key cap.
+        #expect(pressed == [action])
         // Held, the key repeats by itself, and each repeat is a step.
         #expect(keyboard.takeShortcut(from: try keyPress(shortcut, isRepeat: true)))
         #expect(commands == [action.command(fine: false), action.command(fine: false)])
@@ -793,6 +797,25 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
                 set: .functionKeys, managers: ["Rectangle", "Magnet"], functionKeysAreStandard: false)
                 == "Rectangle and Magnet use Ctrl+Alt with the arrow keys, so these are on the function keys. "
                 + "On an Apple keyboard, hold fn with them.")
+    }
+
+    /// While a notice is open, pressing a shortcut lights its key cap, the quarter step's
+    /// included; once it has closed, nothing lights.
+    @Test func aShortcutPressedLightsItsKeyCap() throws {
+        let welcome = WelcomeWindow(onTurnOn: {}, onDontAsk: {})
+        let window = welcome.makeWindow(.firstLaunch, keysAreActive: false)
+        let actions = Shortcut.Action.allCases.filter { ShortcutSettings.shortcut(for: $0) != nil }
+        #expect(Set(welcome.keyCaps.keys) == Set(actions))
+        guard let action = actions.first, let other = actions.last, other != action else { return }
+        let cap = try #require(welcome.keyCaps[action])
+        #expect(cap.shortcut == ShortcutSettings.shortcut(for: action))
+        #expect(!cap.isLit)
+        welcome.shortcutPressed(action)
+        #expect(cap.isLit && welcome.keyCaps[other]?.isLit == false)
+
+        window.close()
+        welcome.shortcutPressed(other)
+        #expect(welcome.keyCaps[other]?.isLit == false)
     }
 
     /// macOS 27 renamed the list, and the notices have to send people to the right one.

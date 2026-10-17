@@ -159,7 +159,10 @@ private func clearPanel(_ frame: NSRect) -> NSPanel {
             }
             backdropWindow.orderFrontRegardless()
             for window in [settings, first, updated] { window.orderFrontRegardless() }
-            try await Task.sleep(for: .milliseconds(1400))
+            try await Task.sleep(for: .milliseconds(1300))
+            // A shortcut pressed while the first notice is open lights its key cap.
+            welcome.shortcutPressed(.volumeUp)
+            try await Task.sleep(for: .milliseconds(100))
 
             let picture = try photograph([updated, first, settings, backdropWindow], size: size)
             try writePreview(picture, named: "windows-\(name)")
@@ -250,104 +253,6 @@ extension GlassWindowTests {
         // The fade takes a quarter of a second, and longer while other tests keep the main thread busy.
         for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
         #expect(!osd.isOnScreen)
-    }
-
-    /// The indicator grows into place and fades in, on a spring, and shrinks a little and fades
-    /// as it leaves; with Reduce Motion it only fades. Each is a Core Animation animation on
-    /// the layer that holds the capsule and its shadow. A picture is taken part of the way in,
-    /// with the clock slowed. Runs only when PREVIEW_DIR is set, since it shows the indicator.
-    @Test func growsIntoPlaceAndShrinksAway() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
-        NSApplication.shared.setActivationPolicy(.accessory)
-        let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let osd = OSD()
-        // Held, so that it stays however long the other tests keep the main thread busy.
-        osd.hold(.watchingKeys)
-        let layer = try #require(osd.stage?.layer)
-        let fadeIn = try #require(layer.animation(forKey: OSD.fadeKey) as? CABasicAnimation)
-        #expect(fadeIn.fromValue as? Float == 0 && fadeIn.toValue as? Float == 1)
-        if moves {
-            let grow = try #require(layer.animation(forKey: OSD.motionKey) as? CASpringAnimation)
-            let start = try #require(grow.fromValue as? CATransform3D)
-            #expect(abs(start.m11 - OSD.appearScale) < 0.001 && abs(start.m22 - OSD.appearScale) < 0.001)
-            #expect(CATransform3DIsIdentity(try #require(grow.toValue as? CATransform3D)))
-        }
-        for _ in 0..<100 where layer.animation(forKey: OSD.fadeKey) != nil {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(osd.isOnScreen)
-
-        // Shown again once it has faded in, it does not fade in again; a spring still under way
-        // goes on to where it was going.
-        osd.hold(.watchingKeys)
-        #expect(layer.animation(forKey: OSD.fadeKey) == nil)
-        if let grow = layer.animation(forKey: OSD.motionKey) as? CASpringAnimation {
-            #expect(CATransform3DIsIdentity(try #require(grow.toValue as? CATransform3D)))
-        }
-
-        osd.release(.watchingKeys)
-        let fadeOut = try #require(layer.animation(forKey: OSD.fadeKey) as? CABasicAnimation)
-        #expect(fadeOut.toValue as? Float == 0 && layer.opacity == 0)
-        if moves {
-            let shrink = try #require(layer.animation(forKey: OSD.motionKey) as? CABasicAnimation)
-            #expect(abs((try #require(shrink.toValue as? CATransform3D)).m11 - OSD.leaveScale) < 0.001)
-        }
-        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
-        #expect(!osd.isOnScreen)
-
-        // Part of the way in, over the dusk sky, with the clock slowed twenty times.
-        layer.speed = 0.05
-        osd.show(.level(Feedback(kind: .brightness, fraction: 0.75)))
-        let panel = try #require(osd.stage?.window)
-        let frame = panel.frame.insetBy(dx: -40, dy: -40)
-        let backdrop = backdropWindow(frame, DuskView(frame: NSRect(origin: .zero, size: frame.size)))
-        backdrop.level = panel.level - 1
-        backdrop.orderFrontRegardless()
-        try await Task.sleep(for: .milliseconds(1200))
-        try writePreview(try photograph([panel, backdrop], size: frame.size), named: "indicator-appearing")
-        layer.speed = 1
-        osd.timeIsUp()
-        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
-        backdrop.close()
-    }
-
-    /// A step that meets an end of the range nudges the capsule towards that end, and a refusal
-    /// shakes it; each moves it sideways on top of whatever else it is doing. Runs only when
-    /// PREVIEW_DIR is set, since it shows the indicator, and only without Reduce Motion.
-    @Test func nudgesAtAnEndAndShakesWhenRefused() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil,
-            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        else { return }
-        NSApplication.shared.setActivationPolicy(.accessory)
-        func pushed(_ end: Feedback.End) -> Indication {
-            var feedback = Feedback(kind: .volume, fraction: end == .top ? 1 : 0)
-            feedback.pushedAgainst = end
-            return .level(feedback)
-        }
-        let osd = OSD()
-        osd.show(.level(Feedback(kind: .volume, fraction: 0.5)))
-        let layer = try #require(osd.stage?.layer)
-        #expect(layer.animation(forKey: OSD.nudgeKey) == nil)
-
-        osd.show(pushed(.top))
-        let nudge = try #require(layer.animation(forKey: OSD.nudgeKey) as? CAKeyframeAnimation)
-        #expect(nudge.isAdditive && (nudge.values?[1] as? CGFloat ?? 0) > 0)
-        // Held there, it does not start again before it is over.
-        osd.show(pushed(.top))
-        #expect(layer.animation(forKey: OSD.nudgeKey) === nudge)
-        for _ in 0..<100 where layer.animation(forKey: OSD.nudgeKey) != nil {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        osd.show(pushed(.bottom))
-        let down = try #require(layer.animation(forKey: OSD.nudgeKey) as? CAKeyframeAnimation)
-        #expect((down.values?[1] as? CGFloat ?? 0) < 0)
-
-        osd.show(.refused(.brightness))
-        let shake = try #require(layer.animation(forKey: OSD.shakeKey) as? CAKeyframeAnimation)
-        #expect(shake.isAdditive && (shake.values?.count ?? 0) > 4)
-
-        osd.timeIsUp()
-        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
     }
 
     /// An open menu keeps the main run loop in its event-tracking mode, and whatever is
@@ -739,4 +644,107 @@ private final class KeySession: NSObject, NSMenuDelegate {
             }
         }
     }
+}
+
+/// The indicator's motion, tested on screen with the real menu's tests and one at a time with
+/// them: run alongside, these left the drag's menu closed early in two runs of three.
+extension MenuOnScreenTests {
+    /// The indicator grows into place and fades in, on a spring, and shrinks a little and fades
+    /// as it leaves; with Reduce Motion it only fades. Each is a Core Animation animation on
+    /// the layer that holds the capsule and its shadow. A picture is taken part of the way in,
+    /// with the clock slowed. Runs only when PREVIEW_DIR is set, since it shows the indicator.
+    @MainActor @Test func growsIntoPlaceAndShrinksAway() async throws {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let osd = OSD()
+        // Held, so that it stays however long the other tests keep the main thread busy.
+        osd.hold(.watchingKeys)
+        let layer = try #require(osd.stage?.layer)
+        let fadeIn = try #require(layer.animation(forKey: OSD.fadeKey) as? CABasicAnimation)
+        #expect(fadeIn.fromValue as? Float == 0 && fadeIn.toValue as? Float == 1)
+        if moves {
+            let grow = try #require(layer.animation(forKey: OSD.motionKey) as? CASpringAnimation)
+            let start = try #require(grow.fromValue as? CATransform3D)
+            #expect(abs(start.m11 - OSD.appearScale) < 0.001 && abs(start.m22 - OSD.appearScale) < 0.001)
+            #expect(CATransform3DIsIdentity(try #require(grow.toValue as? CATransform3D)))
+        }
+        for _ in 0..<100 where layer.animation(forKey: OSD.fadeKey) != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(osd.isOnScreen)
+
+        // Shown again once it has faded in, it does not fade in again; a spring still under way
+        // goes on to where it was going.
+        osd.hold(.watchingKeys)
+        #expect(layer.animation(forKey: OSD.fadeKey) == nil)
+        if let grow = layer.animation(forKey: OSD.motionKey) as? CASpringAnimation {
+            #expect(CATransform3DIsIdentity(try #require(grow.toValue as? CATransform3D)))
+        }
+
+        osd.release(.watchingKeys)
+        let fadeOut = try #require(layer.animation(forKey: OSD.fadeKey) as? CABasicAnimation)
+        #expect(fadeOut.toValue as? Float == 0 && layer.opacity == 0)
+        if moves {
+            let shrink = try #require(layer.animation(forKey: OSD.motionKey) as? CABasicAnimation)
+            #expect(abs((try #require(shrink.toValue as? CATransform3D)).m11 - OSD.leaveScale) < 0.001)
+        }
+        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(!osd.isOnScreen)
+
+        // Part of the way in, over the dusk sky, with the clock slowed twenty times.
+        layer.speed = 0.05
+        osd.show(.level(Feedback(kind: .brightness, fraction: 0.75)))
+        let panel = try #require(osd.stage?.window)
+        let frame = panel.frame.insetBy(dx: -40, dy: -40)
+        let backdrop = backdropWindow(frame, DuskView(frame: NSRect(origin: .zero, size: frame.size)))
+        backdrop.level = panel.level - 1
+        backdrop.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(1200))
+        try writePreview(try photograph([panel, backdrop], size: frame.size), named: "indicator-appearing")
+        layer.speed = 1
+        osd.timeIsUp()
+        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
+        backdrop.close()
+    }
+
+    /// A step that meets an end of the range nudges the capsule towards that end, and a refusal
+    /// shakes it; each moves it sideways on top of whatever else it is doing. Runs only when
+    /// PREVIEW_DIR is set, since it shows the indicator, and only without Reduce Motion.
+    @MainActor @Test func nudgesAtAnEndAndShakesWhenRefused() async throws {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil,
+            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        func pushed(_ end: Feedback.End) -> Indication {
+            var feedback = Feedback(kind: .volume, fraction: end == .top ? 1 : 0)
+            feedback.pushedAgainst = end
+            return .level(feedback)
+        }
+        let osd = OSD()
+        osd.show(.level(Feedback(kind: .volume, fraction: 0.5)))
+        let layer = try #require(osd.stage?.layer)
+        #expect(layer.animation(forKey: OSD.nudgeKey) == nil)
+
+        osd.show(pushed(.top))
+        let nudge = try #require(layer.animation(forKey: OSD.nudgeKey) as? CAKeyframeAnimation)
+        #expect(nudge.isAdditive && (nudge.values?[1] as? CGFloat ?? 0) > 0)
+        // Held there, it does not start again before it is over.
+        osd.show(pushed(.top))
+        #expect(layer.animation(forKey: OSD.nudgeKey) === nudge)
+        for _ in 0..<100 where layer.animation(forKey: OSD.nudgeKey) != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        osd.show(pushed(.bottom))
+        let down = try #require(layer.animation(forKey: OSD.nudgeKey) as? CAKeyframeAnimation)
+        #expect((down.values?[1] as? CGFloat ?? 0) < 0)
+
+        osd.show(.refused(.brightness))
+        let shake = try #require(layer.animation(forKey: OSD.shakeKey) as? CAKeyframeAnimation)
+        #expect(shake.isAdditive && (shake.values?.count ?? 0) > 4)
+
+        osd.timeIsUp()
+        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
+    }
+
 }

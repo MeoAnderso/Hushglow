@@ -23,6 +23,8 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
     private let onDontAsk: () -> Void
     private var window: NSWindow?
     private var askAgainBox: NSButton?
+    /// The key caps on show, by the action they stand for.
+    private(set) var keyCaps: [Shortcut.Action: KeyCap] = [:]
 
     init(onTurnOn: @escaping () -> Void, onDontAsk: @escaping () -> Void) {
         self.onTurnOn = onTurnOn
@@ -83,8 +85,8 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         add(
             text("\(AppInfo.name) \(occasion == .firstLaunch ? "is running" : "was updated")", size: 20, weight: .bold),
             gap: 8)
-        if let shortcuts = Self.shortcutList(width: inner) {
-            add(text("Look for the sun in the menu bar. These shortcuts control your display:"), gap: 12)
+        if let shortcuts = shortcutList(width: inner) {
+            add(text("Look for the sun in the menu bar. These shortcuts control your display; try one:"), gap: 12)
             add(shortcuts, gap: 8)
             let change = "You can also change them, if you want. Choose Settings… from the sun’s menu."
             let why = occasion == .firstLaunch ? Self.whyFunctionKeys() : nil
@@ -163,7 +165,8 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
     }
 
     /// The current shortcuts as rows on a faint panel, one row per control; nil when none is set.
-    private static func shortcutList(width: CGFloat) -> NSView? {
+    private func shortcutList(width: CGFloat) -> NSView? {
+        keyCaps = [:]
         let controls: [(name: String, symbol: String, actions: [Shortcut.Action])] = [
             ("Brightness", "sun.max.fill", [.brightnessDown, .brightnessUp]),
             ("Volume", "speaker.wave.2.fill", [.volumeDown, .volumeUp]),
@@ -181,7 +184,14 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
             let name = NSTextField(labelWithString: control.name)
             // The name takes the room the key caps leave.
             name.setContentHuggingPriority(.defaultLow - 1, for: .horizontal)
-            rows.append([glyph, name, Layout.row(shortcuts.map(KeyCap.init), spacing: 6)])
+            var caps: [KeyCap] = []
+            for action in control.actions {
+                guard let shortcut = ShortcutSettings.shortcut(for: action) else { continue }
+                let cap = KeyCap(shortcut)
+                keyCaps[action] = cap
+                caps.append(cap)
+            }
+            rows.append([glyph, name, Layout.row(caps, spacing: 6)])
         }
         guard !rows.isEmpty else { return nil }
         let grid = NSGridView(views: rows)
@@ -194,6 +204,12 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         let well = WellView(around: grid, insets: NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12))
         well.widthAnchor.constraint(equalToConstant: width).isActive = true
         return well
+    }
+
+    /// A shortcut was pressed: its key cap lights, so that the notice shows it working.
+    func shortcutPressed(_ action: Shortcut.Action) {
+        guard window != nil else { return }
+        keyCaps[action]?.light()
     }
 
     // MARK: Actions
@@ -222,21 +238,68 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
 }
 
 /// A shortcut drawn as a key cap, such as ⌃⌥↑.
-private final class KeyCap: ContrastAwareView {
-    private let shortcut: Shortcut
-    private let text: NSAttributedString
-    private let size: NSSize
+/// A shortcut drawn as a key cap, such as ⌃⌥↑, which lights up when its shortcut is pressed.
+/// The light is a layer under the cap's face that Core Animation fades; it is a fade only, so
+/// it plays with Reduce Motion too.
+final class KeyCap: NSView {
+    static let lightKey = "light"
+
+    let shortcut: Shortcut
+    private let face: KeyCapFace
+    /// The accent colour under the face, unseen until the cap lights.
+    private let glow = NSView()
 
     init(_ shortcut: Shortcut) {
         self.shortcut = shortcut
+        face = KeyCapFace(shortcut)
+        super.init(frame: NSRect(origin: .zero, size: face.frame.size))
+        glow.frame = bounds
+        glow.wantsLayer = true
+        glow.layer?.cornerRadius = 6
+        glow.layer?.opacity = 0
+        addSubview(glow)
+        addSubview(face)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("KeyCap is created in code")
+    }
+
+    override var intrinsicContentSize: NSSize { face.frame.size }
+
+    /// Whether the cap's light is on or fading.
+    var isLit: Bool { glow.layer?.animation(forKey: Self.lightKey) != nil }
+
+    /// Lights the cap at once and lets the light fade.
+    func light() {
+        guard let layer = glow.layer else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.55).cgColor
+        }
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [1, 1, 0]
+        fade.keyTimes = [0, 0.25, 1]
+        fade.duration = 0.9
+        fade.timingFunctions = [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeOut)]
+        layer.add(fade, forKey: Self.lightKey)
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityValue() -> Any? { shortcut.spoken }
+}
+
+/// What a key cap shows: a translucent cap with its edge and the keys on it.
+private final class KeyCapFace: ContrastAwareView {
+    private let text: NSAttributedString
+
+    init(_ shortcut: Shortcut) {
         text = NSAttributedString(
             string: shortcut.symbols,
             attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor])
-        size = NSSize(width: ceil(text.size().width) + 16, height: 22)
-        super.init(frame: NSRect(origin: .zero, size: size))
+        super.init(frame: NSRect(x: 0, y: 0, width: ceil(text.size().width) + 16, height: 22))
     }
-
-    override var intrinsicContentSize: NSSize { size }
 
     required init?(coder: NSCoder) { nil }
 
@@ -250,7 +313,5 @@ private final class KeyCap: ContrastAwareView {
         text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2))
     }
 
-    override func isAccessibilityElement() -> Bool { true }
-    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
-    override func accessibilityValue() -> Any? { shortcut.spoken }
+    override func isAccessibilityElement() -> Bool { false }
 }

@@ -45,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         ShortcutSettings.settleDefaultSet(isNewInstall: !AppInfo.defaults.bool(forKey: Self.welcomeShownKey))
 
         keyboard.onCommand = { [unowned self] in run($0, showOSD: true) }
+        // An open notice lights the key cap of a shortcut that is pressed.
+        keyboard.onShortcut = { [unowned self] in welcomeWindow?.shortcutPressed($0) }
         keyboard.routingContext = { [unowned self] in routingContext }
         let shouldAskAboutKeys = keyboard.start()
         // With the menu open the shortcuts come as key presses on their way to the menu.
