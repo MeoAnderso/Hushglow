@@ -8,6 +8,14 @@ struct AppStatus: Codable {
         var maximum: Int
     }
 
+    /// One display under control.
+    struct DisplayStatus: Codable {
+        var name: String
+        var brightness: Level?
+        var volume: Level?
+        var muted: Bool
+    }
+
     struct ShortcutStatus: Codable {
         var action: String
         var keys: String
@@ -54,6 +62,9 @@ struct AppStatus: Codable {
     /// The app's memory footprint in bytes. Optional, so that a status from an older build still reads.
     var memoryFootprint: UInt64?
     var isWatchingKeys: Bool
+    /// Every display under control, numbered from 1 in this order. Optional, so that a status
+    /// from an older build still reads.
+    var displays: [DisplayStatus]?
     /// What the last key watch saw; nil when none has run.
     var watchedKeys: [String]?
 }
@@ -90,7 +101,8 @@ private func post(_ name: Notification.Name, _ object: String?) {
 @MainActor
 final class CommandChannel: NSObject {
     struct Handlers {
-        var onCommand: (Command) -> Void
+        /// A command, and the number of the display it is for; nil for every display.
+        var onCommand: (Command, Int?) -> Void
         var onShortcutsChanged: () -> Void
         var onKeyTest: () -> Void
         var onWatchKeys: (TimeInterval) -> Void
@@ -125,10 +137,17 @@ final class CommandChannel: NSObject {
     }
 
     @objc private func commandReceived(_ notification: Notification) {
-        guard let text = notification.object as? String,
-            let command = Command(words: text.split(separator: " ").map(String.init))
-        else { return }
-        handlers.onCommand(command)
+        guard let text = notification.object as? String else { return }
+        var words = text.split(separator: " ").map(String.init)
+        // A command for one display ends with its number.
+        var display: Int?
+        if let last = words.last, last.hasPrefix(CommandClient.displayPrefix) {
+            guard let number = Int(last.dropFirst(CommandClient.displayPrefix.count)), number > 0 else { return }
+            display = number
+            words.removeLast()
+        }
+        guard let command = Command(words: words) else { return }
+        handlers.onCommand(command, display)
     }
 
     @objc private func shortcutsChanged() {
@@ -183,8 +202,12 @@ struct CommandClient {
         names = ChannelNames(namespace: namespace)
     }
 
-    func send(_ command: Command) {
-        post(names.command, command.words.joined(separator: " "))
+    static let displayPrefix = "display="
+
+    /// Sends a command for every display, or for the one with this number.
+    func send(_ command: Command, display: Int? = nil) {
+        let words = command.words + (display.map { ["\(Self.displayPrefix)\($0)"] } ?? [])
+        post(names.command, words.joined(separator: " "))
     }
 
     func notifyShortcutsChanged() {

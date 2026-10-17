@@ -27,8 +27,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     private var welcomeWindow: WelcomeWindow?
     private var lastRead: (milliseconds: Int, values: Int)?
 
-    var displayState: DisplayState? { displays?.primary }
-    var controlledDisplayNames: [String] { displays?.controlled.compactMap { $0.identity?.name } ?? [] }
+    var displayState: DisplayState? {
+        soundDisplay.flatMap { displays?.state(of: $0) } ?? displays?.primary
+    }
+
+    var menuDisplays: [MenuDisplay] {
+        displays?.sessions.map { session in
+            MenuDisplay(
+                id: ObjectIdentifier(session.display), name: session.display.identity?.name ?? "Display",
+                state: session.state)
+        } ?? []
+    }
     var displayControlIsAvailable: Bool { displays != nil }
     var keyboardKeysAreActive: Bool { keyboard.keysAreActive }
 
@@ -44,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         // Before any shortcut is registered.
         ShortcutSettings.settleDefaultSet(isNewInstall: !AppInfo.defaults.bool(forKey: Self.welcomeShownKey))
 
-        keyboard.onCommand = { [unowned self] in run($0, showOSD: true) }
+        keyboard.onCommand = { [unowned self] in run($0, showOSD: true, to: keyTargets(for: $0)) }
         // An open notice lights the key cap of a shortcut that is pressed.
         keyboard.onShortcut = { [unowned self] in welcomeWindow?.shortcutPressed($0) }
         keyboard.routingContext = { [unowned self] in routingContext }
@@ -61,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         osd.anchor = { [unowned statusMenu] in statusMenu.itemFrame }
         channel = CommandChannel(
             handlers: .init(
-                onCommand: { [unowned self] in run($0, showOSD: true) },
+                onCommand: { [unowned self] in run($0, showOSD: true, to: displays(numbered: $1)) },
                 onShortcutsChanged: { [unowned self] in keyboard.reloadShortcuts() },
                 onKeyTest: { [unowned self] in keyboard.postTestKey() },
                 onWatchKeys: { [unowned self] in watchKeys(for: $0) },
@@ -112,13 +121,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
 
     // MARK: Commands
 
-    /// Applies a command to the displays and optionally shows the result on screen.
-    func run(_ command: Command, showOSD: Bool) {
+    /// Applies a command from the menu to one display, or to all of them.
+    func run(_ command: Command, showOSD: Bool, on display: MenuDisplay.ID?) {
+        let handle = displays?.controlled.first { ObjectIdentifier($0) == display }
+        run(command, showOSD: showOSD, to: handle.map { [$0] })
+    }
+
+    /// Applies a command to some displays, or to all of them, and optionally shows the result
+    /// on the display that answered.
+    func run(_ command: Command, showOSD: Bool, to targets: [AVService]?) {
         guard let displays else {
             if showOSD { indicate(.noDisplay) }
             return
         }
-        displays.apply(command) { [unowned self] feedback, isFinal in
+        let screen = displays.answering(command, to: targets)?.identity?.screen
+        displays.apply(command, to: targets) { [unowned self] feedback, isFinal in
             // Mute may have changed, from the menu as from anywhere else.
             if isFinal { statusMenu?.updateIcon() }
             // What the menu asks for stops here. Its sliders are ahead of the display as it
@@ -127,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             // An open menu shows what a key did, as the indicator does.
             if isFinal { statusMenu?.levelsChanged() }
             if let feedback {
-                indicate(.level(feedback))
+                indicate(.level(feedback), on: screen)
                 if isFinal,
                     FeedbackSound.plays(
                         after: command, feedback: feedback, soundGoesToDisplay: audio.outputIsDisplay,
@@ -141,9 +158,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         }
     }
 
-    private func indicate(_ indication: Indication) {
-        osd.show(indication)
+    private func indicate(_ indication: Indication, on screen: NSScreen? = nil) {
+        osd.show(indication, on: screen)
         announcer.announce(indication)
+    }
+
+    // MARK: Which display
+
+    /// Which displays a key or a shortcut changes: nil for all of them. With several displays
+    /// and the keys set to follow the pointer, the volume goes to the display that sound plays
+    /// through, and the rest to the display under the pointer; on a screen that is not under
+    /// control, every display changes.
+    private func keyTargets(for command: Command) -> [AVService]? {
+        Self.keyTargets(
+            for: command.control, setting: ControlSettings.keysChange, count: displays?.controlled.count ?? 0,
+            soundDisplay: soundDisplay, displayUnderPointer: displayUnderPointer)
+    }
+
+    /// The rule `keyTargets(for:)` follows, apart from the screen and the sound output.
+    static func keyTargets<Display>(
+        for control: Command.Control, setting: ControlSettings.Target, count: Int, soundDisplay: Display?,
+        displayUnderPointer: Display?
+    ) -> [Display]? {
+        guard setting == .pointer, count > 1 else { return nil }
+        if control == .volume, let soundDisplay { return [soundDisplay] }
+        return displayUnderPointer.map { [$0] }
+    }
+
+    /// The display with a number from the command line, counted from 1 in the order `status`
+    /// lists them; nil for every display.
+    private func displays(numbered number: Int?) -> [AVService]? {
+        guard let number else { return nil }
+        let controlled = displays?.controlled ?? []
+        return controlled.indices.contains(number - 1) ? [controlled[number - 1]] : []
+    }
+
+    /// The display under control that sound plays through, by the name of the sound output.
+    private var soundDisplay: AVService? {
+        guard let name = audio.displayName else { return nil }
+        return displays?.controlled.first { $0.identity?.playsSound(named: name) == true }
+    }
+
+    private var displayUnderPointer: AVService? {
+        let point = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) }) else { return nil }
+        return displays?.controlled.first { $0.identity?.screen == screen }
     }
 
     /// Starts a key watch. Any process on this Mac can ask for one over the command channel,
@@ -214,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
 
     func previewIndicator() {
         let brightness = displays?.primary?.brightness ?? DDC.Value(current: 50, maximum: 100)
-        osd.show(.level(Feedback(kind: .brightness, value: brightness)))
+        osd.show(.level(Feedback(kind: .brightness, value: brightness)), on: nil)
     }
 
     // MARK: Displays
@@ -300,6 +359,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             lastReadValues: lastRead?.values,
             memoryFootprint: ProcessMemory.footprint,
             isWatchingKeys: keyboard.watch.isWatching,
+            displays: menuDisplays.map { display in
+                AppStatus.DisplayStatus(
+                    name: display.name, brightness: level(display.state.brightness),
+                    volume: level(display.state.volume), muted: display.state.isMuted)
+            },
             watchedKeys: keyboard.watch.seen)
     }
 }

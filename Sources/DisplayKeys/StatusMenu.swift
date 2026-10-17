@@ -1,15 +1,26 @@
 import AppKit
 import DisplayKeysCore
 
+/// A display under control, as the menu shows it.
+struct MenuDisplay: Equatable {
+    typealias ID = ObjectIdentifier
+    var id: ID
+    /// The name macOS shows for it.
+    var name: String
+    var state: DisplayState
+}
+
 /// What the menu needs from the app.
 @MainActor
 protocol StatusMenuHost: AnyObject {
+    /// The displays under control, in the order they were found.
+    var menuDisplays: [MenuDisplay] { get }
+    /// The display the menu bar icon speaks for: the one sound plays through, else the first.
     var displayState: DisplayState? { get }
-    /// The names of the displays the app controls, as macOS shows them.
-    var controlledDisplayNames: [String] { get }
     var displayControlIsAvailable: Bool { get }
     var keyboardKeysAreActive: Bool { get }
-    func run(_ command: Command, showOSD: Bool)
+    /// Applies a command to one display, or to all of them when none is given.
+    func run(_ command: Command, showOSD: Bool, on display: MenuDisplay.ID?)
     /// Reads the displays' values again, without looking for the displays afresh.
     func readDisplays()
     /// Reads again whether the keyboard's own keys are allowed.
@@ -63,6 +74,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         let controls = controls ?? build(menu)
         controls.update()
+        // A display came or went since the menu was last open.
+        let items = controls.items + fixedItems
+        if menu.items != items { menu.items = items }
     }
 
     /// Called when the displays were re-read.
@@ -113,13 +127,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return icon
     }
 
-    private func build(_ menu: NSMenu) -> MenuControls {
-        let controls = MenuControls(host: host)
+    /// The items at the end of the menu, which never change.
+    private lazy var fixedItems: [NSMenuItem] = {
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         let quitItem = NSMenuItem(
             title: "Quit \(AppInfo.name)", action: #selector(NSApplication.terminate), keyEquivalent: "q")
-        menu.items = controls.items + [.separator(), settingsItem, quitItem]
+        return [.separator(), settingsItem, quitItem]
+    }()
+
+    private func build(_ menu: NSMenu) -> MenuControls {
+        let controls = MenuControls(host: host)
         self.controls = controls
         return controls
     }
@@ -129,71 +147,64 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 }
 
-/// The part of the menu that changes: the slider rows, the reminder of the shortcuts, the
-/// status line and the offer to turn the keyboard's keys on. It stands apart from the menu bar
-/// item so that it can be tested without putting one in the menu bar.
+/// The part of the menu that changes: the rows of each display, the reminder of the
+/// shortcuts, the status line and the offer to turn the keyboard's keys on. It stands apart
+/// from the menu bar item so that it can be tested without putting one in the menu bar.
 @MainActor
 final class MenuControls: NSObject {
-    let brightnessRow = SliderRow(name: "Brightness", symbol: "sun.max.fill", hasButton: false)
-    let volumeRow = SliderRow(name: "Volume", symbol: "speaker.wave.2.fill", hasButton: true)
+    /// One group of rows per display under control, and always at least one.
+    private(set) var groups: [DisplayRows] = []
     let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     let versionLine = NSMenuItem(title: "\(AppInfo.name) \(AppInfo.version)", action: nil, keyEquivalent: "")
-    private let brightnessItem = NSMenuItem()
-    private let volumeItem = NSMenuItem()
     private let hintItem = NSMenuItem()
+    private let separator = NSMenuItem.separator()
     private let accessItem = NSMenuItem(title: "Turn On \(KeyboardKeys.name)…", action: nil, keyEquivalent: "")
 
     private unowned let host: any StatusMenuHost
-    /// Whether the volume row shows the display as muted; kept here because a mute sent from
-    /// the menu may not have reached the cached state yet.
-    private(set) var showsMuted = false
 
     init(host: any StatusMenuHost) {
         self.host = host
         super.init()
-        brightnessRow.onChange = { [unowned self] in set(.brightness, to: $0) }
-        brightnessItem.view = brightnessRow
-        volumeRow.onChange = { [unowned self] in set(.volume, to: $0) }
-        volumeRow.button?.target = self
-        volumeRow.button?.action = #selector(toggleMute)
-        volumeItem.view = volumeRow
         hintItem.isEnabled = false
         statusLine.isEnabled = false
         versionLine.isEnabled = false
         accessItem.target = self
         accessItem.action = #selector(enableKeyboardKeys)
         accessItem.subtitle = "Needs \(AccessibilityAccess.listName)"
+        groups = [makeGroup()]
     }
+
+    /// The first display's rows, which are the only ones with a single display.
+    var brightnessRow: SliderRow { groups[0].brightnessRow }
+    var volumeRow: SliderRow { groups[0].volumeRow }
+    var showsMuted: Bool { groups[0].showsMuted }
 
     /// The items in the order the menu shows them.
     var items: [NSMenuItem] {
-        [brightnessItem, volumeItem, hintItem, .separator(), statusLine, versionLine, accessItem]
+        groups.flatMap(\.items) + [hintItem, separator, statusLine, versionLine, accessItem]
     }
 
     /// Brings everything in line with what the app knows.
     func update() {
-        let state = host.displayState
-        for row in [brightnessRow, volumeRow] {
-            row.slider.isHighContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        }
-        brightnessItem.isHidden = state?.brightness == nil
-        volumeItem.isHidden = state?.volume == nil
-        if let brightness = state?.brightness { brightnessRow.show(percent: brightness.fraction * 100) }
-        if let volume = state?.volume {
-            showsMuted = state?.isMuted == true
-            volumeRow.show(percent: volume.fraction * 100)
-            updateMuteButton()
+        let displays = host.menuDisplays
+        let count = max(displays.count, 1)
+        while groups.count < count { groups.append(makeGroup()) }
+        if groups.count > count { groups.removeLast(groups.count - count) }
+        let isHighContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        for (index, group) in groups.enumerated() {
+            // Each display's rows are headed by its name once there is more than one.
+            group.show(index < displays.count ? displays[index] : nil, named: displays.count > 1)
+            group.isHighContrast = isHighContrast
         }
 
         if !host.displayControlIsAvailable {
             statusLine.title = "Display control is unavailable on this macOS"
-        } else if state == nil {
+        } else if displays.isEmpty {
             statusLine.title = "No controllable display found"
         } else {
-            // The display under control, which need not be the first screen: another can be a
+            // The displays under control, which need not be the first screens: another can be a
             // television or a projector that does not answer DDC.
-            let names = ListFormatter.localizedString(byJoining: host.controlledDisplayNames)
-            statusLine.title = names.isEmpty ? "Controlling a display" : "Controlling \(names)"
+            statusLine.title = "Controlling \(ListFormatter.localizedString(byJoining: displays.map(\.name)))"
         }
 
         accessItem.isHidden = host.keyboardKeysAreActive
@@ -205,15 +216,13 @@ final class MenuControls: NSObject {
     /// Rows that are on screen follow at once. With the menu closed they are in no window and
     /// there is nothing to do, since everything is brought up to date when the menu opens.
     func levelsChanged() {
-        if brightnessRow.window != nil || volumeRow.window != nil { update() }
+        if groups.contains(where: \.isOnScreen) { update() }
     }
 
-    private func updateMuteButton() {
-        let symbol = showsMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"
-        volumeRow.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        volumeRow.button?.setAccessibilityLabel(showsMuted ? "Unmute" : "Mute")
-        // The slider stays usable while muted: moving it unmutes, as macOS's own does.
-        volumeRow.slider.isDimmed = showsMuted
+    private func makeGroup() -> DisplayRows {
+        let group = DisplayRows()
+        group.onCommand = { [unowned self] command, display in host.run(command, showOSD: false, on: display) }
+        return group
     }
 
     /// The shortcuts in one quiet line, as a reminder.
@@ -232,23 +241,86 @@ final class MenuControls: NSObject {
             attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
     }
 
+    @objc private func enableKeyboardKeys() {
+        host.enableKeyboardKeys()
+    }
+}
+
+/// One display's rows in the menu: its name when there are several displays, then its
+/// brightness and its volume, which change that display alone.
+@MainActor
+final class DisplayRows: NSObject {
+    let brightnessRow = SliderRow(name: "Brightness", symbol: "sun.max.fill", hasButton: false)
+    let volumeRow = SliderRow(name: "Volume", symbol: "speaker.wave.2.fill", hasButton: true)
+    let header = NSMenuItem.sectionHeader(title: "")
+    private let brightnessItem = NSMenuItem()
+    private let volumeItem = NSMenuItem()
+    /// Called with a command for the display these rows are for.
+    var onCommand: ((Command, MenuDisplay.ID?) -> Void)?
+    /// The display the rows are for; nil while there is none.
+    private(set) var display: MenuDisplay.ID?
+    /// Whether the volume row shows the display as muted; kept here because a mute sent from
+    /// the menu may not have reached the cached state yet.
+    private(set) var showsMuted = false
+
+    override init() {
+        super.init()
+        brightnessRow.onChange = { [unowned self] in set(.brightness, to: $0) }
+        brightnessItem.view = brightnessRow
+        volumeRow.onChange = { [unowned self] in set(.volume, to: $0) }
+        volumeRow.button?.target = self
+        volumeRow.button?.action = #selector(toggleMute)
+        volumeItem.view = volumeRow
+    }
+
+    var items: [NSMenuItem] { [header, brightnessItem, volumeItem] }
+    var isOnScreen: Bool { brightnessRow.window != nil || volumeRow.window != nil }
+
+    var isHighContrast = false {
+        didSet { for row in [brightnessRow, volumeRow] { row.slider.isHighContrast = isHighContrast } }
+    }
+
+    /// Shows a display's state, headed by its name when `named` is set.
+    func show(_ shown: MenuDisplay?, named: Bool) {
+        display = shown?.id
+        let state = shown?.state
+        header.title = shown?.name ?? ""
+        header.isHidden = !named || shown == nil
+        // VoiceOver says which display a slider is for when there are several.
+        let prefix = named ? "\(shown?.name ?? "") " : ""
+        brightnessRow.slider.name = prefix + (named ? "brightness" : "Brightness")
+        volumeRow.slider.name = prefix + (named ? "volume" : "Volume")
+        brightnessItem.isHidden = state?.brightness == nil
+        volumeItem.isHidden = state?.volume == nil
+        if let brightness = state?.brightness { brightnessRow.show(percent: brightness.fraction * 100) }
+        if let volume = state?.volume {
+            showsMuted = state?.isMuted == true
+            volumeRow.show(percent: volume.fraction * 100)
+            updateMuteButton()
+        }
+    }
+
+    private func updateMuteButton() {
+        let symbol = showsMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"
+        volumeRow.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        volumeRow.button?.setAccessibilityLabel(showsMuted ? "Unmute" : "Mute")
+        // The slider stays usable while muted: moving it unmutes, as macOS's own does.
+        volumeRow.slider.isDimmed = showsMuted
+    }
+
     private func set(_ control: Command.Control, to percent: Double) {
         // Setting the volume unmutes the display, so the row has to show that at once.
         if control == .volume, showsMuted {
             showsMuted = false
             updateMuteButton()
         }
-        host.run(.set(control, percent: Int(percent.rounded())), showOSD: false)
+        onCommand?(.set(control, percent: Int(percent.rounded())), display)
     }
 
     @objc private func toggleMute() {
         showsMuted.toggle()
-        host.run(.mute(showsMuted ? .on : .off), showOSD: false)
+        onCommand?(.mute(showsMuted ? .on : .off), display)
         updateMuteButton()
-    }
-
-    @objc private func enableKeyboardKeys() {
-        host.enableKeyboardKeys()
     }
 }
 

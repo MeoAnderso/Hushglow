@@ -6,6 +6,9 @@ import Foundation
 @MainActor
 final class AudioRoute {
     private(set) var outputIsDisplay = false
+    /// The name of the display sound goes to, as macOS gives it the display's own; nil when
+    /// sound goes elsewhere.
+    private(set) var displayName: String?
     /// Called when sound starts or stops going to such a display.
     var onChange: (() -> Void)?
     private var isListening = false
@@ -25,9 +28,19 @@ final class AudioRoute {
 
     func refresh() {
         let wasDisplay = outputIsDisplay
-        outputIsDisplay =
-            Self.defaultOutputDevice().map { Self.isDisplayTransport($0) && !Self.hasVolumeControl($0) } ?? false
-        if outputIsDisplay != wasDisplay { onChange?() }
+        let wasName = displayName
+        let device = Self.defaultOutputDevice()
+        outputIsDisplay = device.map { Self.isDisplayTransport($0) && !Self.hasVolumeControl($0) } ?? false
+        displayName = outputIsDisplay ? device.flatMap(Self.name) : nil
+        if outputIsDisplay != wasDisplay || displayName != wasName { onChange?() }
+    }
+
+    private static func name(of device: AudioDeviceID) -> String? {
+        var address = propertyAddress(kAudioObjectPropertyName)
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &name) == noErr else { return nil }
+        return name?.takeRetainedValue() as String?
     }
 
     private static func propertyAddress(

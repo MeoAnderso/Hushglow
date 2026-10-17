@@ -16,9 +16,9 @@ enum CLI {
     private static let usage = """
         Usage:
           DisplayKeys                                   run the menu bar app
-          DisplayKeys step brightness|volume up|down [--fine]
-          DisplayKeys set brightness|volume <0-100>
-          DisplayKeys mute [toggle|on|off]
+          DisplayKeys step brightness|volume up|down [--fine] [--display <n>]
+          DisplayKeys set brightness|volume <0-100> [--display <n>]
+          DisplayKeys mute [toggle|on|off] [--display <n>]   n as numbered by status; every display without it
           DisplayKeys get brightness|volume|mute
           DisplayKeys shortcut                          list shortcuts
           DisplayKeys shortcut <action> <keys|none|default>   for example: brightness-up ctrl+alt+up
@@ -55,16 +55,38 @@ enum CLI {
 
     // MARK: Commands
 
+    /// Takes `--display <n>` out of the arguments; nil when it is there without a number of 1
+    /// or more.
+    static func displayOption(in arguments: [String]) -> (arguments: [String], display: Int?)? {
+        guard let index = arguments.firstIndex(of: "--display") else { return (arguments, nil) }
+        guard index + 1 < arguments.count, let number = Int(arguments[index + 1]), number > 0 else { return nil }
+        var rest = arguments
+        rest.removeSubrange(index...(index + 1))
+        return (rest, number)
+    }
+
     private static func send(_ arguments: [String]) -> Int32 {
-        guard let command = Command(words: arguments) else { return fail(usage, status: 64) }
+        guard let (words, display) = displayOption(in: arguments), let command = Command(words: words) else {
+            return fail(usage, status: 64)
+        }
         if AppInfo.otherInstance != nil {
-            client.send(command)
+            if let display {
+                let count = client.requestStatus()?.displays?.count ?? 0
+                guard display <= count else { return fail("There is no display \(display); `status` lists them.") }
+            }
+            client.send(command, display: display)
             return 0
         }
         guard let io = IOAV.shared else { return fail(noTransport) }
+        // Numbered as the running app numbers them: the displays that answer, in order.
+        var answering = io.displays().map { ($0, io.state(of: $0)) }.filter(\.1.isControllable)
+        if let display {
+            guard answering.indices.contains(display - 1) else { return fail("There is no display \(display).") }
+            answering = [answering[display - 1]]
+        }
         var applied = false
-        for display in io.displays() {
-            var state = io.state(of: display)
+        for (display, state) in answering {
+            var state = state
             guard let outcome = state.apply(command) else { continue }
             for write in outcome.writes { io.set(display, write.feature, value: write.value) }
             applied = true
@@ -289,6 +311,12 @@ enum CLI {
             lines.append("Display: control is unavailable on this macOS")
         } else if status.brightness == nil, status.volume == nil {
             lines.append("Display: none that can be controlled")
+        } else if let displays = status.displays, displays.count > 1 {
+            for (index, display) in displays.enumerated() {
+                lines.append(
+                    "Display \(index + 1), \(display.name): brightness \(describe(display.brightness)), "
+                        + "volume \(describe(display.volume)), mute \(display.muted ? "on" : "off")")
+            }
         } else {
             lines.append(
                 "Display: brightness \(describe(status.brightness)), volume \(describe(status.volume)), "

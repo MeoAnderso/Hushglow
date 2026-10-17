@@ -33,6 +33,11 @@ keys and shortcuts play macOS's feedback sound. The indicator also tells you whe
 nothing to control, and when the display refuses a change (some picture modes lock
 brightness).
 
+With more than one display that answers DDC, the menu has a group of rows for each, under
+its name, and the keys and shortcuts change the display under the pointer; the volume keys
+change the display that sound plays through. The indicator appears on the display that
+changed. Settings → General can have the keys change every display at once instead.
+
 A keyboard's own volume and brightness keys work too, if it has them and macOS receives
 them. That needs the app to be switched on in System Settings → Privacy & Security, in the
 list macOS 27 calls Device Control and Data Access and macOS 26 calls Accessibility.
@@ -61,6 +66,8 @@ Choose Settings… in the menu.
   Ctrl+Alt+Shift+arrows itself; the window names any that clash.
 - **Brightness and volume keys**, the keyboard's own. Shows whether they are on, and turns
   them on.
+- **Keys change** the display under the pointer, or every display; this matters only with
+  more than one display that answers DDC.
 - **Launch at login.**
 
 The indicator follows the system's accessibility settings: a solid capsule with Reduce
@@ -86,6 +93,7 @@ command reports whether the running app could register the shortcut.
 DisplayKeys step brightness up      # or down; add --fine for a quarter step
 DisplayKeys set volume 30           # percent
 DisplayKeys mute                    # toggle; or: mute on, mute off
+DisplayKeys set brightness 70 --display 2   # one display, numbered as status lists them
 DisplayKeys get brightness
 ```
 

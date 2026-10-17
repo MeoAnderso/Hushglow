@@ -121,18 +121,32 @@ public final class Displays<Transport: DisplayTransport> {
         for session in sessions { session.readValues() }
     }
 
+    /// The display whose feedback a command for these displays would give: the first of them
+    /// that has the control; nil when none has it.
+    public func answering(_ command: Command, to displays: [Transport.Handle]? = nil) -> Transport.Handle? {
+        sessions.first { session in
+            session.has(command.control) && displays.map { $0.contains { $0 === session.display } } ?? true
+        }?.display
+    }
+
     /// Applies a command to the given displays, or to every display when none is given, as far
-    /// as they have the control. The feedback is the first of those displays'.
+    /// as they have the control. The feedback is the first of those displays', and that display
+    /// is returned; nil when none of them has the control.
+    @discardableResult
     public func apply(
         _ command: Command, to displays: [Transport.Handle]? = nil, feedback: @escaping FeedbackHandler = { _, _ in }
-    ) {
+    ) -> Transport.Handle? {
         let targets = sessions.filter { session in
             session.has(command.control) && displays.map { $0.contains { $0 === session.display } } ?? true
         }
-        guard let first = targets.first else { return feedback(nil, true) }
+        guard let first = targets.first else {
+            feedback(nil, true)
+            return nil
+        }
         commandCounts[command.control, default: 0] += 1
         first.apply(command, feedback: feedback)
         for session in targets.dropFirst() { session.apply(command) { _, _ in } }
+        return first.display
     }
 
     /// Reads a feature from every display, for the command line. The request waits its turn

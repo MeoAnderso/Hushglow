@@ -45,19 +45,33 @@ struct DisplayIdentity: Equatable, Sendable {
         return (same.first { $0.serial == serial } ?? (same.count == 1 ? same.first : nil))?.id
     }
 
-    /// The name macOS shows for this display, as in System Settings; the EDID's name when no
-    /// screen matches.
-    @MainActor var name: String? {
-        let screens = NSScreen.screens.compactMap { screen -> (NSScreen, CGDirectDisplayID)? in
-            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-            else { return nil }
-            return (screen, id)
-        }
+    /// The screen this display is; nil when none matches.
+    @MainActor var screen: NSScreen? {
+        let screens = NSScreen.screens.compactMap { screen in screen.number.map { (screen, $0) } }
         let id = screen(
             among: screens.map {
                 ($0.1, CGDisplayVendorNumber($0.1), CGDisplayModelNumber($0.1), CGDisplaySerialNumber($0.1))
             })
-        return screens.first { $0.1 == id }?.0.localizedName ?? productName
+        return screens.first { $0.1 == id }?.0
+    }
+
+    /// The name macOS shows for this display, as in System Settings; the EDID's name when no
+    /// screen matches.
+    @MainActor var name: String? {
+        screen?.localizedName ?? productName
+    }
+
+    /// Whether this is the display a sound output of this name plays through. macOS names a
+    /// display's sound output after the display.
+    @MainActor func playsSound(named output: String) -> Bool {
+        [name, productName].contains { $0?.caseInsensitiveCompare(output) == .orderedSame }
+    }
+}
+
+extension NSScreen {
+    /// The screen's display, as Core Graphics numbers it.
+    var number: CGDirectDisplayID? {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 }
 

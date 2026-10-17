@@ -1215,22 +1215,49 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
 
 @MainActor
 final class StubMenuHost: StatusMenuHost {
-    var displayState: DisplayState?
-    var controlledDisplayNames = ["PANEL 27"]
+    /// Stands for a display, for its identity.
+    private final class Display {}
+    private static let first = Display()
+    static let firstID = ObjectIdentifier(first)
+
+    var menuDisplays: [MenuDisplay] = []
     var displayControlIsAvailable = true
     var keyboardKeysAreActive = false
     var commands: [Command] = []
+    /// The display each command was for; nil for every display.
+    var targets: [MenuDisplay.ID?] = []
     var indicatorRequests = 0
 
     init(brightness: Int? = 50, volume: Int? = 30, muted: Bool = false) {
+        displayState = Self.state(brightness: brightness, volume: volume, muted: muted)
+    }
+
+    static func state(brightness: Int? = 50, volume: Int? = 30, muted: Bool = false) -> DisplayState {
         func value(_ current: Int?) -> DDC.Value? { current.map { DDC.Value(current: $0, maximum: 100) } }
-        displayState = DisplayState(
+        return DisplayState(
             brightness: value(brightness), volume: value(volume),
             mute: DDC.Value(current: muted ? DDC.Mute.on : DDC.Mute.off, maximum: 2))
     }
 
-    func run(_ command: Command, showOSD: Bool) {
+    /// The first display's state; nil for no display at all.
+    var displayState: DisplayState? {
+        get { menuDisplays.first?.state }
+        set {
+            guard let newValue else {
+                menuDisplays = []
+                return
+            }
+            if menuDisplays.isEmpty {
+                menuDisplays = [MenuDisplay(id: Self.firstID, name: "PANEL 27", state: newValue)]
+            } else {
+                menuDisplays[0].state = newValue
+            }
+        }
+    }
+
+    func run(_ command: Command, showOSD: Bool, on display: MenuDisplay.ID?) {
         commands.append(command)
+        targets.append(display)
         if showOSD { indicatorRequests += 1 }
         if lastLeftover != nil { leftoversThatOutlivedTheirEvent += 1 }
         let leftover = Leftover()
@@ -1248,6 +1275,99 @@ final class StubMenuHost: StatusMenuHost {
     private final class Leftover {}
     private weak var lastLeftover: Leftover?
     private(set) var leftoversThatOutlivedTheirEvent = 0
+}
+
+/// With several displays, each has its own rows in the menu, headed by its name, and changes
+/// alone; the keys follow the pointer, and the volume the sound.
+@MainActor
+@Suite struct SeveralDisplaysTests {
+    private final class Display {}
+    private let second = Display()
+
+    @Test func eachDisplayHasItsOwnRows() throws {
+        let host = StubMenuHost(brightness: 50, volume: 30)
+        let controls = MenuControls(host: host)
+        controls.update()
+        #expect(controls.groups.count == 1 && controls.groups[0].header.isHidden)
+        #expect(controls.brightnessRow.slider.name == "Brightness")
+
+        let secondID = ObjectIdentifier(second)
+        host.menuDisplays.append(
+            MenuDisplay(id: secondID, name: "PANEL 32", state: StubMenuHost.state(brightness: 80, volume: nil)))
+        controls.update()
+        #expect(controls.groups.count == 2)
+        #expect(controls.groups.map(\.header.title) == ["PANEL 27", "PANEL 32"])
+        #expect(controls.groups.allSatisfy { !$0.header.isHidden })
+        #expect(controls.groups[1].brightnessRow.slider.value == 80)
+        #expect(controls.groups[1].brightnessRow.slider.name == "PANEL 32 brightness")
+        #expect(controls.statusLine.title == "Controlling PANEL 27 and PANEL 32")
+        // The second display has no volume, so it has no volume row.
+        let hidden = controls.items.filter(\.isHidden).compactMap(\.view)
+        #expect(hidden.contains(controls.groups[1].volumeRow) && !hidden.contains(controls.volumeRow))
+        // The menu takes every group's items, in order.
+        let items = controls.items
+        #expect(items.firstIndex(of: controls.groups[0].header)! < items.firstIndex(of: controls.groups[1].header)!)
+
+        // Each display's slider changes that display alone.
+        #expect(controls.groups[1].brightnessRow.slider.accessibilityPerformIncrement())
+        #expect(controls.brightnessRow.slider.accessibilityPerformDecrement())
+        #expect(host.targets == [secondID, StubMenuHost.firstID])
+        #expect(host.commands == [.set(.brightness, percent: 81), .set(.brightness, percent: 44)])
+
+        // Back to one display, one group without a name.
+        host.menuDisplays.removeLast()
+        controls.update()
+        #expect(controls.groups.count == 1 && controls.groups[0].header.isHidden)
+        #expect(controls.statusLine.title == "Controlling PANEL 27")
+    }
+
+    /// The keys change the display under the pointer, and the volume the display the sound
+    /// plays through; with one display, or set to change every display, they change all.
+    @Test func theKeysFollowThePointerAndTheSound() {
+        func targets(
+            _ control: Command.Control, _ setting: ControlSettings.Target = .pointer, count: Int = 2,
+            sound: String? = "sound", pointer: String? = "pointer"
+        ) -> [String]? {
+            AppDelegate.keyTargets(
+                for: control, setting: setting, count: count, soundDisplay: sound, displayUnderPointer: pointer)
+        }
+        #expect(targets(.brightness) == ["pointer"])
+        #expect(targets(.volume) == ["sound"])
+        // Sound that plays through no display under control: the display under the pointer.
+        #expect(targets(.volume, sound: nil) == ["pointer"])
+        // The pointer on a screen that is not under control: every display.
+        #expect(targets(.brightness, pointer: nil) == nil)
+        #expect(targets(.brightness, .every) == nil && targets(.volume, .every) == nil)
+        #expect(targets(.brightness, count: 1) == nil)
+    }
+
+    @Test func theCommandLineNamesADisplayByNumber() {
+        #expect(CLI.displayOption(in: ["set", "brightness", "50"])?.display == nil)
+        let option = CLI.displayOption(in: ["set", "brightness", "50", "--display", "2"])
+        #expect(option?.arguments == ["set", "brightness", "50"] && option?.display == 2)
+        #expect(CLI.displayOption(in: ["mute", "--display", "1", "on"])?.arguments == ["mute", "on"])
+        for bad in [["mute", "--display"], ["mute", "--display", "0"], ["mute", "--display", "two"]] {
+            #expect(CLI.displayOption(in: bad) == nil)
+        }
+    }
+
+    @Test func statusListsEveryDisplayByNumber() {
+        var status = AppStatus(
+            version: "9.9.9", build: nil, displayControlAvailable: true, brightness: .init(current: 41, maximum: 100),
+            volume: .init(current: 6, maximum: 100), muted: false, accessGranted: true, askingIsDisabled: false,
+            keyTapActive: true, soundGoesToDisplay: true, quarterSteps: false, shortcuts: [], input: .init(),
+            isWatchingKeys: false)
+        #expect(CLI.describe(status).contains("Display: brightness 41/100, volume 6/100, mute off"))
+        status.displays = [
+            .init(
+                name: "PANEL 27", brightness: .init(current: 41, maximum: 100),
+                volume: .init(current: 6, maximum: 100), muted: false),
+            .init(name: "PANEL 32", brightness: .init(current: 80, maximum: 100), volume: nil, muted: false),
+        ]
+        let text = CLI.describe(status)
+        #expect(text.contains("Display 1, PANEL 27: brightness 41/100, volume 6/100, mute off"))
+        #expect(text.contains("Display 2, PANEL 32: brightness 80/100, volume not supported, mute off"))
+    }
 }
 
 @MainActor
@@ -1305,12 +1425,6 @@ final class StubMenuHost: StatusMenuHost {
 
         // The display under control is named, which need not be the first screen.
         #expect(controls.statusLine.title == "Controlling PANEL 27")
-        host.controlledDisplayNames = ["PANEL 27", "PANEL 32"]
-        controls.update()
-        #expect(controls.statusLine.title == "Controlling PANEL 27 and PANEL 32")
-        host.controlledDisplayNames = []
-        controls.update()
-        #expect(controls.statusLine.title == "Controlling a display")
         // And the version, which nothing else in the interface shows.
         #expect(controls.items.contains { $0.title == "DisplayKeys \(AppInfo.version)" && !$0.isEnabled })
 
@@ -1430,6 +1544,7 @@ final class StubMenuHost: StatusMenuHost {
         var keyTests = 0
         var watches: [TimeInterval] = []
         var reads: [DDC.Feature] = []
+        var displays: [Int?] = []
     }
 
     /// Waits without blocking the main thread, which is where the notifications arrive.
@@ -1455,7 +1570,10 @@ final class StubMenuHost: StatusMenuHost {
         let channel = CommandChannel(
             namespace: namespace,
             handlers: .init(
-                onCommand: { received.commands.append($0) },
+                onCommand: { command, display in
+                    received.commands.append(command)
+                    received.displays.append(display)
+                },
                 onShortcutsChanged: { received.shortcutChanges += 1 },
                 onKeyTest: { received.keyTests += 1 },
                 onWatchKeys: { received.watches.append($0) },
@@ -1465,13 +1583,15 @@ final class StubMenuHost: StatusMenuHost {
         let client = CommandClient(namespace: namespace)
 
         client.send(.step(.volume, up: true, fine: true))
-        client.send(.mute(.off))
+        client.send(.mute(.off), display: 2)
         client.notifyShortcutsChanged()
         client.requestKeyTest()
         client.watchKeys(seconds: 10)
         await wait { received.watches.count == 1 }
 
         #expect(received.commands == [.step(.volume, up: true, fine: true), .mute(.off)])
+        // A command for one display carries its number; one for every display, none.
+        #expect(received.displays == [nil, 2])
         #expect(received.shortcutChanges == 1)
         #expect(received.keyTests == 1)
         #expect(received.watches == [10])
@@ -1481,7 +1601,7 @@ final class StubMenuHost: StatusMenuHost {
         let channel = CommandChannel(
             namespace: namespace,
             handlers: .init(
-                onCommand: { _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in },
+                onCommand: { _, _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in },
                 readValues: { _, _ in }, status: makeStatus))
         defer { channel.stop() }
 
@@ -1526,7 +1646,7 @@ final class StubMenuHost: StatusMenuHost {
         let channel = CommandChannel(
             namespace: namespace,
             handlers: .init(
-                onCommand: { _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in },
+                onCommand: { _, _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in },
                 readValues: { feature, answer in
                     received.reads.append(feature)
                     answer([.init(current: 13, maximum: 100)])

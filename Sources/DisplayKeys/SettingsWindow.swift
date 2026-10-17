@@ -50,6 +50,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private var keysButton: NSButton?
     private var askBox: NSButton?
     private var loginBox: NSButton?
+    private var keysChangePopup: NSPopUpButton?
     private var stylePopup: NSPopUpButton?
     private var positionPopup: NSPopUpButton?
     private var percentageBox: NSButton?
@@ -217,7 +218,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         let loginBox = checkbox("Launch at login", #selector(loginChanged))
         self.loginBox = loginBox
-        let general = section("General", [loginBox])
+        let keysChangePopup = popup(
+            "With several displays, keys change", ControlSettings.Target.allCases.map(\.title),
+            #selector(keysChangeChanged))
+        self.keysChangePopup = keysChangePopup
+        let general = section("General", [form([("Keys change", [keysChangePopup])], spacing: 8), loginBox])
 
         let restore = NSButton(title: "Restore Defaults", target: self, action: #selector(askToRestoreDefaults))
         let restoreRow = NSStackView()
@@ -247,6 +252,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         positionPopup?.selectItem(
             at: IndicatorSettings.Position.allCases.firstIndex(of: IndicatorSettings.position) ?? 0)
         percentageBox?.state = IndicatorSettings.showsPercentage ? .on : .off
+        keysChangePopup?.selectItem(
+            at: ControlSettings.Target.allCases.firstIndex(of: ControlSettings.keysChange) ?? 0)
 
         for (action, control) in controls {
             control.shortcut = ShortcutSettings.shortcut(for: action)
@@ -394,6 +401,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         host.previewIndicator()
     }
 
+    /// With several displays, the keys and the shortcuts change the one under the pointer, or
+    /// every display.
+    @objc private func keysChangeChanged(_ sender: NSPopUpButton) {
+        ControlSettings.keysChange = ControlSettings.Target.allCases[max(sender.indexOfSelectedItem, 0)]
+    }
+
     @objc private func turnOnKeys() {
         host.enableKeyboardKeys()
     }
@@ -430,7 +443,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let alert = NSAlert()
         alert.messageText = "Restore the default settings?"
         alert.informativeText =
-            "The shortcuts and the indicator go back to their defaults. The \(KeyboardKeys.phrase) "
+            "The shortcuts, the indicator and which display the keys change go back to their defaults. The "
+            + "\(KeyboardKeys.phrase) "
             + "and launch at login stay as they are."
         alert.addButton(withTitle: "Restore Defaults")
         alert.addButton(withTitle: "Cancel")
@@ -446,6 +460,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         IndicatorSettings.style = .glass
         IndicatorSettings.position = .underMenuBarIcon
         IndicatorSettings.showsPercentage = false
+        ControlSettings.keysChange = .pointer
         show(message: nil)
         reload()
         applyShortcuts()

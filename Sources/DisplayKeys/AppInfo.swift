@@ -170,6 +170,29 @@ enum WindowManagers {
     }
 }
 
+/// Which display the keyboard's keys and the shortcuts change, when there are several.
+enum ControlSettings {
+    enum Target: String, CaseIterable {
+        /// The display under the pointer, the one being looked at; the volume keys change the
+        /// display that sound plays through.
+        case pointer
+        /// Every display at once.
+        case every
+
+        var title: String {
+            switch self {
+            case .pointer: "The one under the pointer"
+            case .every: "Every display"
+            }
+        }
+    }
+
+    static var keysChange: Target {
+        get { AppInfo.defaults.string(forKey: "control.keysChange").flatMap(Target.init) ?? .pointer }
+        set { AppInfo.defaults.set(newValue.rawValue, forKey: "control.keysChange") }
+    }
+}
+
 /// How the on-screen indicator looks and where it appears.
 enum IndicatorSettings {
     enum Style: String, CaseIterable {

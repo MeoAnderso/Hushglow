@@ -74,7 +74,9 @@ final class OSD: NSObject {
         fadeOut()
     }
 
-    func show(_ indication: Indication) {
+    /// Shows an indication on a screen: the one whose display changed, or with none given, the
+    /// one the indicator is set to appear on.
+    func show(_ indication: Indication, on screen: NSScreen? = nil) {
         let look = IndicatorLook.current
         if look != self.look { rebuild(for: look) }
         guard let panel, let indicator else { return }
@@ -85,7 +87,7 @@ final class OSD: NSObject {
         indicator.showsPercentage = IndicatorSettings.showsPercentage
         indicator.show(indication, animated: wasVisible && moves)
 
-        let origin = restingOrigin()
+        let origin = restingOrigin(on: screen)
         panel.setFrameOrigin(NSPoint(x: origin.x - Self.shadowRoom, y: origin.y - Self.shadowRoom))
         if !panel.isVisible { panel.orderFrontRegardless() }
         // From wherever a leaving that is under way has got to.
@@ -215,19 +217,23 @@ final class OSD: NSObject {
     }
 
     /// Under the menu bar item when that is asked for and its position is known, as macOS does
-    /// with its own indicators; otherwise the top-right corner of the screen in use.
-    private func restingOrigin() -> NSPoint {
-        if IndicatorSettings.position == .underMenuBarIcon, let anchor = anchor?(),
-            let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) })
-        {
-            let area = screen.visibleFrame
-            let x = anchor.midX - Self.size.width / 2
-            return NSPoint(
-                x: min(max(x, area.minX + Self.margin), area.maxX - Self.size.width - Self.margin),
-                y: area.maxY - Self.size.height - Self.margin)
+    /// with its own indicators; otherwise the top-right corner. On a screen other than the one
+    /// with the menu bar item, it goes where the item sits in that screen's menu bar: as far
+    /// from the right edge.
+    private func restingOrigin(on target: NSScreen?) -> NSPoint {
+        let anchorFrame = anchor?()
+        let anchorScreen = anchorFrame.flatMap { frame in NSScreen.screens.first { $0.frame.intersects(frame) } }
+        let underIcon = IndicatorSettings.position == .underMenuBarIcon
+        guard let screen = target ?? (underIcon ? anchorScreen : nil) ?? NSScreen.main ?? NSScreen.screens.first
+        else { return .zero }
+        let area = screen.visibleFrame
+        let top = area.maxY - Self.size.height - Self.margin
+        guard underIcon, let anchorFrame, let anchorScreen else {
+            return NSPoint(x: area.maxX - Self.size.width - Self.margin, y: top)
         }
-        let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? .zero
-        return NSPoint(x: area.maxX - Self.size.width - Self.margin, y: area.maxY - Self.size.height - Self.margin)
+        let fromRight = anchorScreen.frame.maxX - anchorFrame.midX
+        let x = screen.frame.maxX - fromRight - Self.size.width / 2
+        return NSPoint(x: min(max(x, area.minX + Self.margin), area.maxX - Self.size.width - Self.margin), y: top)
     }
 
     private func rebuild(for look: IndicatorLook) {

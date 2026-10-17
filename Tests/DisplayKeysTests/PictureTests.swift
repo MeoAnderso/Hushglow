@@ -445,18 +445,26 @@ private final class MenuSession: NSObject {
     private var endedAt: Int?
     private var origin = NSPoint.zero
 
+    /// Stands for a second display, which the menu shows below the first.
+    private final class SecondDisplay {}
+    private let secondDisplay = SecondDisplay()
+
     init(appearance: NSAppearance.Name, events: Int) {
         self.events = events
-        backdrop = backdropWindow(NSRect(x: 80, y: 260, width: 620, height: 300))
+        backdrop = backdropWindow(NSRect(x: 80, y: 260, width: 620, height: 380))
         super.init()
+        host.menuDisplays.append(
+            MenuDisplay(
+                id: ObjectIdentifier(secondDisplay), name: "PANEL 32",
+                state: StubMenuHost.state(brightness: 70, volume: nil)))
         menu.autoenablesItems = false
         menu.appearance = NSAppearance(named: appearance)
+        controls.update()
         menu.items =
             controls.items + [
                 .separator(), NSMenuItem(title: "Settings…", action: nil, keyEquivalent: ","),
                 NSMenuItem(title: "Quit \(AppInfo.name)", action: nil, keyEquivalent: "q"),
             ]
-        controls.update()
     }
 
     /// Returns when the menu has closed again.
