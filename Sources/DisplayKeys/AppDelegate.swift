@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     private let audio = AudioRoute()
     private let osd = OSD()
     private let announcer = Announcer()
+    private let feedbackSound = FeedbackSound()
     private let keyboard = KeyboardInput()
     private let systemEvents = SystemEvents()
     private var statusMenu: StatusMenu?
@@ -123,6 +124,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             if isFinal { statusMenu?.levelsChanged() }
             if let feedback {
                 indicate(.level(feedback))
+                if isFinal,
+                    FeedbackSound.plays(
+                        after: command, feedback: feedback, soundGoesToDisplay: audio.outputIsDisplay,
+                        isOn: FeedbackSound.isOn)
+                {
+                    feedbackSound.play()
+                }
             } else if isFinal {
                 indicate(displays.primary == nil ? .noDisplay : .unsupported(command.control))
             }

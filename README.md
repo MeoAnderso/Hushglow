@@ -26,11 +26,12 @@ keyboard whose top row sends brightness and volume, hold fn with them. The choic
 once, the first time the app runs; Restore Defaults in Settings makes it again.
 
 Holding a shortcut keeps stepping, at the pace of the keyboard's own key repeat (System
-Settings → Keyboard). The menu bar item has sliders with a mute button for the mouse, which also
-move when you scroll over them, and
-an indicator appears under it as you change a level. The indicator also tells you when
-there is nothing to control, and when the display refuses a change (some picture modes
-lock brightness).
+Settings → Keyboard). The menu bar item has sliders with a mute button for the mouse, which
+also move when you scroll over them, and an indicator appears under it as you change a
+level. With "Play feedback when volume is changed" on in System Settings → Sound, the volume
+keys and shortcuts play macOS's feedback sound. The indicator also tells you when there is
+nothing to control, and when the display refuses a change (some picture modes lock
+brightness).
 
 A keyboard's own volume and brightness keys work too, if it has them and macOS receives
 them. That needs the app to be switched on in System Settings → Privacy & Security, in the

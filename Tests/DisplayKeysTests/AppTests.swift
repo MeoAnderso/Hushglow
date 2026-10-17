@@ -868,6 +868,40 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
     }
 }
 
+@MainActor
+@Suite struct FeedbackSoundTests {
+    /// macOS keeps the sound where the app looks for it; a release that moves it is caught here.
+    @Test func theSoundIsWhereMacOSKeepsIt() {
+        #expect(FileManager.default.fileExists(atPath: FeedbackSound.path))
+        #expect(NSSound(contentsOfFile: FeedbackSound.path, byReference: true) != nil)
+    }
+
+    /// A volume step plays it when the setting is on and sound goes to the display; nothing
+    /// else does.
+    @Test func playsAfterAVolumeStepOnly() {
+        let volume = Feedback(kind: .volume, fraction: 0.5)
+        let up = Command.step(.volume, up: true, fine: false)
+        #expect(FeedbackSound.plays(after: up, feedback: volume, soundGoesToDisplay: true, isOn: true))
+        #expect(!FeedbackSound.plays(after: up, feedback: volume, soundGoesToDisplay: true, isOn: false))
+        #expect(!FeedbackSound.plays(after: up, feedback: volume, soundGoesToDisplay: false, isOn: true))
+        #expect(
+            !FeedbackSound.plays(
+                after: .step(.brightness, up: true, fine: false), feedback: Feedback(kind: .brightness, fraction: 1),
+                soundGoesToDisplay: true, isOn: true))
+        #expect(
+            !FeedbackSound.plays(
+                after: .mute(.toggle), feedback: Feedback(kind: .muted, fraction: 0.5), soundGoesToDisplay: true,
+                isOn: true))
+        #expect(
+            !FeedbackSound.plays(
+                after: .set(.volume, percent: 40), feedback: volume, soundGoesToDisplay: true, isOn: true))
+        // At the top of the range it still plays, as macOS's does.
+        var top = Feedback(kind: .volume, fraction: 1)
+        top.pushedAgainst = .top
+        #expect(FeedbackSound.plays(after: up, feedback: top, soundGoesToDisplay: true, isOn: true))
+    }
+}
+
 /// An open menu keeps the main run loop in its event-tracking mode. What is scheduled for the
 /// default mode alone waits until the menu closes, so the app's delayed calls are scheduled for
 /// every mode.
