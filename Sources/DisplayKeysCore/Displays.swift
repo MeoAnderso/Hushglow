@@ -15,7 +15,15 @@ public protocol DisplayTransport: Sendable {
 
 extension DisplayTransport {
     public func state(of display: Handle) -> DisplayState {
-        DisplayState(brightness: get(display, .brightness), volume: get(display, .volume), mute: get(display, .mute))
+        let brightness = get(display, .brightness)
+        let volume = get(display, .volume)
+        // A display that answers nothing is not asked for more.
+        guard brightness != nil || volume != nil else {
+            return DisplayState(brightness: nil, volume: nil, mute: nil)
+        }
+        return DisplayState(
+            brightness: brightness, volume: volume, mute: get(display, .mute), contrast: get(display, .contrast),
+            input: get(display, .input))
     }
 }
 

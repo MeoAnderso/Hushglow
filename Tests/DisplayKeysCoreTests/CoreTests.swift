@@ -29,7 +29,7 @@ import Testing
     @Test func aFeatureHasItsCommandLineName() {
         for feature in DDC.Feature.allCases { #expect(DDC.Feature(name: feature.name) == feature) }
         #expect(DDC.Feature(name: "volume") == .volume)
-        #expect(DDC.Feature(name: "contrast") == nil)
+        #expect(DDC.Feature(name: "contrast") == .contrast && DDC.Feature(name: "gamma") == nil)
     }
 
     @Test func rejectsBadReplies() {
@@ -192,6 +192,7 @@ import Testing
             .step(.volume, up: false, fine: true),
             .set(.brightness, percent: 40),
             .mute(.toggle), .mute(.on), .mute(.off),
+            .step(.contrast, up: true, fine: false), .set(.contrast, percent: 70), .input(.hdmi2), .input(.usbC),
         ]
         for command in commands {
             #expect(Command(words: command.words) == command)
@@ -201,7 +202,9 @@ import Testing
 
     @Test func rejectsInvalidWords() {
         #expect(Command(words: []) == nil)
-        #expect(Command(words: ["step", "contrast", "up"]) == nil)
+        #expect(Command(words: ["step", "input", "up"]) == nil)
+        #expect(Command(words: ["set", "input", "50"]) == nil)
+        #expect(Command(words: ["input", "vga"]) == nil)
         #expect(Command(words: ["step", "volume", "sideways"]) == nil)
         #expect(Command(words: ["set", "volume", "101"]) == nil)
         #expect(Command(words: ["set", "volume"]) == nil)
@@ -246,6 +249,39 @@ import Testing
         #expect(unmuted?.writes == [.init(.mute, DDC.Mute.off)] && unmuted?.feedback.pushedAgainst == nil)
         // A value set outright is never a push, even when it is already there.
         #expect(muted.apply(.set(.volume, percent: 100))?.feedback.pushedAgainst == nil)
+    }
+
+    @Test func contrastStepsAndIsSetLikeBrightness() {
+        var state = DisplayState(
+            brightness: DDC.Value(current: 50, maximum: 100), volume: nil, mute: nil,
+            contrast: DDC.Value(current: 70, maximum: 100))
+        #expect(state.has(.contrast) && !state.has(.volume) && !state.has(.input))
+        let up = state.apply(.step(.contrast, up: true, fine: false))
+        #expect(up?.writes == [.init(.contrast, 75)] && up?.feedback.kind == .contrast)
+        #expect(state.apply(.set(.contrast, percent: 40))?.writes == [.init(.contrast, 40)])
+        #expect(state.reconcile(.contrast, with: DDC.Value(current: 45, maximum: 100)) == 40)
+        #expect(state.contrast?.current == 45)
+        // Without contrast, nothing to do.
+        var plain = DisplayState(brightness: DDC.Value(current: 50, maximum: 100), volume: nil, mute: nil)
+        #expect(plain.apply(.step(.contrast, up: true, fine: false)) == nil)
+    }
+
+    /// Switching inputs writes the input's number, unless the display shows it already; the
+    /// number some displays report has other bits beside it.
+    @Test func switchesInputs() {
+        var state = DisplayState(
+            brightness: DDC.Value(current: 50, maximum: 100), volume: nil, mute: nil,
+            input: DDC.Value(current: 0x0F, maximum: 0x1B))
+        #expect(state.has(.input))
+        #expect(state.apply(.input(.displayPort1))?.writes == [])
+        let hdmi = state.apply(.input(.hdmi1))
+        #expect(hdmi?.writes == [.init(.input, 0x11)] && hdmi?.feedback.kind == .input)
+        #expect(state.input == 0x11)
+        #expect(state.reconcile(.input, with: DDC.Value(current: 0x0111, maximum: 0x1B)) == nil)
+        #expect(state.reconcile(.input, with: DDC.Value(current: 0x0F, maximum: 0x1B)) == 0x0111)
+        #expect(DDC.Input(reported: 0x0112) == .hdmi2 && DDC.Input(reported: 0x05) == nil)
+        // Inputs are not levels.
+        #expect(state.apply(.step(.input, up: true, fine: false)) == nil)
     }
 
     @Test func togglesHardwareMute() {

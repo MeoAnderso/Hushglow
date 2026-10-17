@@ -451,12 +451,14 @@ private final class MenuSession: NSObject {
 
     init(appearance: NSAppearance.Name, events: Int) {
         self.events = events
-        backdrop = backdropWindow(NSRect(x: 80, y: 260, width: 620, height: 380))
+        backdrop = backdropWindow(NSRect(x: 80, y: 220, width: 620, height: 460))
         super.init()
         host.menuDisplays.append(
             MenuDisplay(
                 id: ObjectIdentifier(secondDisplay), name: "PANEL 32",
-                state: StubMenuHost.state(brightness: 70, volume: nil)))
+                state: DisplayState(
+                    brightness: DDC.Value(current: 70, maximum: 100), volume: nil, mute: nil,
+                    contrast: DDC.Value(current: 75, maximum: 100), input: DDC.Value(current: 0x0F, maximum: 0x1B))))
         menu.autoenablesItems = false
         menu.appearance = NSAppearance(named: appearance)
         controls.update()

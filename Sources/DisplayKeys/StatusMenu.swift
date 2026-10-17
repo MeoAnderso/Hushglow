@@ -247,14 +247,18 @@ final class MenuControls: NSObject {
 }
 
 /// One display's rows in the menu: its name when there are several displays, then its
-/// brightness and its volume, which change that display alone.
+/// brightness, its volume and its contrast, and its inputs. Each changes that display alone.
 @MainActor
 final class DisplayRows: NSObject {
     let brightnessRow = SliderRow(name: "Brightness", symbol: "sun.max.fill", hasButton: false)
     let volumeRow = SliderRow(name: "Volume", symbol: "speaker.wave.2.fill", hasButton: true)
+    let contrastRow = SliderRow(name: "Contrast", symbol: "circle.lefthalf.filled", hasButton: false)
     let header = NSMenuItem.sectionHeader(title: "")
+    /// The display's inputs, the one it shows ticked.
+    let inputItem = NSMenuItem(title: "Input", action: nil, keyEquivalent: "")
     private let brightnessItem = NSMenuItem()
     private let volumeItem = NSMenuItem()
+    private let contrastItem = NSMenuItem()
     /// Called with a command for the display these rows are for.
     var onCommand: ((Command, MenuDisplay.ID?) -> Void)?
     /// The display the rows are for; nil while there is none.
@@ -271,13 +275,22 @@ final class DisplayRows: NSObject {
         volumeRow.button?.target = self
         volumeRow.button?.action = #selector(toggleMute)
         volumeItem.view = volumeRow
+        contrastRow.onChange = { [unowned self] in set(.contrast, to: $0) }
+        contrastItem.view = contrastRow
+        inputItem.submenu = NSMenu(title: "Input")
+        for input in DDC.Input.allCases {
+            let item = NSMenuItem(title: input.title, action: #selector(chooseInput), keyEquivalent: "")
+            item.target = self
+            item.tag = input.rawValue
+            inputItem.submenu?.addItem(item)
+        }
     }
 
-    var items: [NSMenuItem] { [header, brightnessItem, volumeItem] }
-    var isOnScreen: Bool { brightnessRow.window != nil || volumeRow.window != nil }
+    var items: [NSMenuItem] { [header, brightnessItem, volumeItem, contrastItem, inputItem] }
+    var isOnScreen: Bool { [brightnessRow, volumeRow, contrastRow].contains { $0.window != nil } }
 
     var isHighContrast = false {
-        didSet { for row in [brightnessRow, volumeRow] { row.slider.isHighContrast = isHighContrast } }
+        didSet { for row in [brightnessRow, volumeRow, contrastRow] { row.slider.isHighContrast = isHighContrast } }
     }
 
     /// Shows a display's state, headed by its name when `named` is set.
@@ -290,9 +303,16 @@ final class DisplayRows: NSObject {
         let prefix = named ? "\(shown?.name ?? "") " : ""
         brightnessRow.slider.name = prefix + (named ? "brightness" : "Brightness")
         volumeRow.slider.name = prefix + (named ? "volume" : "Volume")
+        contrastRow.slider.name = prefix + (named ? "contrast" : "Contrast")
         brightnessItem.isHidden = state?.brightness == nil
         volumeItem.isHidden = state?.volume == nil
+        contrastItem.isHidden = state?.contrast == nil
+        inputItem.isHidden = state?.input == nil
         if let brightness = state?.brightness { brightnessRow.show(percent: brightness.fraction * 100) }
+        if let contrast = state?.contrast { contrastRow.show(percent: contrast.fraction * 100) }
+        let current = state?.input.flatMap(DDC.Input.init(reported:))
+        for item in inputItem.submenu?.items ?? [] { item.state = item.tag == current?.rawValue ? .on : .off }
+        inputItem.title = current.map { "Input: \($0.title)" } ?? "Input"
         if let volume = state?.volume {
             showsMuted = state?.isMuted == true
             volumeRow.show(percent: volume.fraction * 100)
@@ -315,6 +335,13 @@ final class DisplayRows: NSObject {
             updateMuteButton()
         }
         onCommand?(.set(control, percent: Int(percent.rounded())), display)
+    }
+
+    /// Switches the display to another input. The display then shows what is connected there,
+    /// and this Mac's picture is gone from it until it is switched back.
+    @objc private func chooseInput(_ sender: NSMenuItem) {
+        guard let input = DDC.Input(rawValue: sender.tag) else { return }
+        onCommand?(.input(input), display)
     }
 
     @objc private func toggleMute() {

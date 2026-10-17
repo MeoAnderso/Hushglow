@@ -143,6 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             guard showOSD else { return }
             // An open menu shows what a key did, as the indicator does.
             if isFinal { statusMenu?.levelsChanged() }
+            // A display switched to another input no longer shows this Mac.
+            if feedback?.kind == .input { return }
             if let feedback {
                 indicate(.level(feedback), on: screen)
                 if isFinal,
@@ -362,7 +364,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             displays: menuDisplays.map { display in
                 AppStatus.DisplayStatus(
                     name: display.name, brightness: level(display.state.brightness),
-                    volume: level(display.state.volume), muted: display.state.isMuted)
+                    volume: level(display.state.volume), muted: display.state.isMuted,
+                    contrast: level(display.state.contrast), input: display.state.input)
             },
             watchedKeys: keyboard.watch.seen)
     }

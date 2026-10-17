@@ -14,6 +14,9 @@ struct AppStatus: Codable {
         var brightness: Level?
         var volume: Level?
         var muted: Bool
+        var contrast: Level?
+        /// The input the display shows, as it reports it.
+        var input: Int?
     }
 
     struct ShortcutStatus: Codable {

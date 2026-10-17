@@ -660,11 +660,15 @@ final class OSDView: NSView {
         case .watchingKeys: return ("keyboard", nil)
         case .unsupported(.brightness): return ("sun.max", nil)
         case .unsupported(.volume): return ("speaker.slash", nil)
+        case .unsupported(.contrast): return ("circle.lefthalf.filled", nil)
+        case .unsupported(.input): return ("rectangle.connected.to.line.below", nil)
         case .level(let feedback):
             switch feedback.kind {
             case .brightness: return ("sun.max.fill", nil)
             case .muted: return ("speaker.slash.fill", nil)
             case .volume: return ("speaker.wave.3.fill", Self.litWaves(for: feedback.fraction))
+            case .contrast: return ("circle.lefthalf.filled", nil)
+            case .input: return ("rectangle.connected.to.line.below", nil)
             }
         }
     }

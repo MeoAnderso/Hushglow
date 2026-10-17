@@ -1323,6 +1323,30 @@ final class StubMenuHost: StatusMenuHost {
 
     /// The keys change the display under the pointer, and the volume the display the sound
     /// plays through; with one display, or set to change every display, they change all.
+    /// A display with contrast and inputs has a contrast row and its inputs in a submenu, the
+    /// one it shows ticked; choosing another switches that display alone.
+    @Test func contrastAndInputsArePerDisplay() throws {
+        let host = StubMenuHost()
+        host.displayState = DisplayState(
+            brightness: DDC.Value(current: 50, maximum: 100), volume: nil, mute: nil,
+            contrast: DDC.Value(current: 70, maximum: 100), input: DDC.Value(current: 0x11, maximum: 0x1B))
+        let controls = MenuControls(host: host)
+        controls.update()
+        let rows = controls.groups[0]
+        #expect(rows.contrastRow.slider.value == 70)
+        #expect(!controls.items.filter(\.isHidden).compactMap(\.view).contains(rows.contrastRow))
+        #expect(!rows.inputItem.isHidden && rows.inputItem.title == "Input: HDMI 1")
+        let inputs = try #require(rows.inputItem.submenu?.items)
+        #expect(inputs.map(\.title) == ["DisplayPort 1", "DisplayPort 2", "HDMI 1", "HDMI 2", "USB-C"])
+        #expect(inputs.filter { $0.state == .on }.map(\.title) == ["HDMI 1"])
+
+        let usbC = try #require(inputs.last)
+        _ = usbC.target?.perform(usbC.action, with: usbC)
+        #expect(rows.contrastRow.slider.accessibilityPerformIncrement())
+        #expect(host.commands == [.input(.usbC), .set(.contrast, percent: 75)])
+        #expect(host.targets == [StubMenuHost.firstID, StubMenuHost.firstID])
+    }
+
     @Test func theKeysFollowThePointerAndTheSound() {
         func targets(
             _ control: Command.Control, _ setting: ControlSettings.Target = .pointer, count: Int = 2,
@@ -1367,6 +1391,9 @@ final class StubMenuHost: StatusMenuHost {
         let text = CLI.describe(status)
         #expect(text.contains("Display 1, PANEL 27: brightness 41/100, volume 6/100, mute off"))
         #expect(text.contains("Display 2, PANEL 32: brightness 80/100, volume not supported, mute off"))
+        status.displays?[1].contrast = .init(current: 75, maximum: 100)
+        status.displays?[1].input = 0x11
+        #expect(CLI.describe(status).contains("mute off, contrast 75/100, input HDMI 1"))
     }
 }
 
@@ -1421,7 +1448,9 @@ final class StubMenuHost: StatusMenuHost {
         #expect(controls.brightnessRow.slider.value == 50)
         // A control the display lacks has no row.
         let hidden = controls.items.filter(\.isHidden).compactMap(\.view)
-        #expect(hidden == [controls.volumeRow])
+        // Nor has a display without contrast a contrast row.
+        #expect(hidden == [controls.volumeRow, controls.groups[0].contrastRow])
+        #expect(controls.groups[0].inputItem.isHidden)
 
         // The display under control is named, which need not be the first screen.
         #expect(controls.statusLine.title == "Controlling PANEL 27")

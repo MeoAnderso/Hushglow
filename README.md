@@ -36,7 +36,9 @@ brightness).
 With more than one display that answers DDC, the menu has a group of rows for each, under
 its name, and the keys and shortcuts change the display under the pointer; the volume keys
 change the display that sound plays through. The indicator appears on the display that
-changed. Settings → General can have the keys change every display at once instead.
+changed. Settings → General can have the keys change every display at once instead. A
+display that has contrast gets a slider for it, and one that reports its input gets its
+inputs in a submenu, to switch it to another source.
 
 A keyboard's own volume and brightness keys work too, if it has them and macOS receives
 them. That needs the app to be switched on in System Settings → Privacy & Security, in the
@@ -94,6 +96,8 @@ DisplayKeys step brightness up      # or down; add --fine for a quarter step
 DisplayKeys set volume 30           # percent
 DisplayKeys mute                    # toggle; or: mute on, mute off
 DisplayKeys set brightness 70 --display 2   # one display, numbered as status lists them
+DisplayKeys set contrast 60
+DisplayKeys input hdmi1             # or dp1, dp2, hdmi2, usbc: the display then shows that input
 DisplayKeys get brightness
 ```
 

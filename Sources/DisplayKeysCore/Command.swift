@@ -3,12 +3,17 @@ public enum Command: Equatable, Sendable {
     public enum Control: String, Sendable, CaseIterable {
         case brightness
         case volume
+        case contrast
+        /// Which input the display shows.
+        case input
 
         /// The control's name at the start of a sentence.
         public var title: String {
             switch self {
             case .brightness: "Brightness"
             case .volume: "Volume"
+            case .contrast: "Contrast"
+            case .input: "Input"
             }
         }
 
@@ -17,7 +22,14 @@ public enum Command: Equatable, Sendable {
             switch self {
             case .brightness: [.brightness]
             case .volume: [.volume, .mute]
+            case .contrast: [.contrast]
+            case .input: [.input]
             }
+        }
+
+        /// Whether the control is a level, which can be stepped and set to a percentage.
+        public var isLevel: Bool {
+            self != .input
         }
     }
 
@@ -31,6 +43,8 @@ public enum Command: Equatable, Sendable {
     /// Sets a control to a percentage of its range.
     case set(Control, percent: Int)
     case mute(MuteAction)
+    /// Switches the display to one of its inputs.
+    case input(DDC.Input)
 
     /// Parses command-line words such as `step brightness up --fine`, `set volume 40` or `mute`.
     public init?(words: [String]) {
@@ -41,12 +55,17 @@ public enum Command: Equatable, Sendable {
 
         switch (verb, words.count) {
         case ("step", 3):
-            guard let control = Control(rawValue: words[1]), ["up", "down"].contains(words[2]) else { return nil }
+            guard let control = Control(rawValue: words[1]), control.isLevel, ["up", "down"].contains(words[2])
+            else { return nil }
             self = .step(control, up: words[2] == "up", fine: fine)
         case ("set", 3):
-            guard let control = Control(rawValue: words[1]), let percent = Int(words[2]), (0...100).contains(percent)
+            guard let control = Control(rawValue: words[1]), control.isLevel, let percent = Int(words[2]),
+                (0...100).contains(percent)
             else { return nil }
             self = .set(control, percent: percent)
+        case ("input", 2):
+            guard let input = DDC.Input(name: words[1]) else { return nil }
+            self = .input(input)
         case ("mute", 1):
             self = .mute(.toggle)
         case ("mute", 2):
@@ -62,6 +81,7 @@ public enum Command: Equatable, Sendable {
         switch self {
         case .step(let control, _, _), .set(let control, _): control
         case .mute: .volume
+        case .input: .input
         }
     }
 
@@ -69,7 +89,7 @@ public enum Command: Equatable, Sendable {
     /// and a toggle start from the current value instead.
     public var isAbsolute: Bool {
         switch self {
-        case .set, .mute(.on), .mute(.off): true
+        case .set, .mute(.on), .mute(.off), .input: true
         case .step, .mute(.toggle): false
         }
     }
@@ -77,9 +97,10 @@ public enum Command: Equatable, Sendable {
     /// What has to be read from a display before this command can be applied to a stale cache.
     public var featureToRead: DDC.Feature {
         switch self {
-        case .step(.brightness, _, _), .set(.brightness, _): .brightness
         case .step(.volume, _, _), .set(.volume, _): .volume
         case .mute: .mute
+        case .step(let control, _, _), .set(let control, _): control.features[0]
+        case .input: .input
         }
     }
 
@@ -92,6 +113,8 @@ public enum Command: Equatable, Sendable {
             ["set", control.rawValue, String(percent)]
         case .mute(let action):
             ["mute", action.rawValue]
+        case .input(let input):
+            ["input", input.name]
         }
     }
 }

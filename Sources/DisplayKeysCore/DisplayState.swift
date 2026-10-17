@@ -27,6 +27,8 @@ public enum Indication: Equatable, Sendable {
         case .brightness: "Brightness \(feedback.percent) percent"
         case .volume: "Volume \(feedback.percent) percent"
         case .muted: "Muted"
+        case .contrast: "Contrast \(feedback.percent) percent"
+        case .input: "Input changed"
         }
     }
 }
@@ -37,6 +39,9 @@ public struct Feedback: Equatable, Sendable {
         case brightness
         case volume
         case muted
+        case contrast
+        /// The display was switched to another input; there is no level to show.
+        case input
     }
 
     /// An end of the range.
@@ -95,12 +100,30 @@ public struct DisplayState: Equatable, Sendable {
     /// Whether the display implements the mute feature; otherwise mute is emulated with volume 0.
     public var hasHardwareMute: Bool
     public var isMuted: Bool
+    public var contrast: DDC.Value?
+    /// The input the display shows, as it reports it; nil when it does not say.
+    public var input: Int?
 
-    public init(brightness: DDC.Value?, volume: DDC.Value?, mute: DDC.Value?) {
+    public init(
+        brightness: DDC.Value?, volume: DDC.Value?, mute: DDC.Value?, contrast: DDC.Value? = nil,
+        input: DDC.Value? = nil
+    ) {
         self.brightness = brightness
         self.volume = volume
         hasHardwareMute = mute != nil
         isMuted = mute?.current == DDC.Mute.on
+        self.contrast = contrast
+        self.input = input?.current
+    }
+
+    /// Whether the display has a control.
+    public func has(_ control: Command.Control) -> Bool {
+        switch control {
+        case .brightness: brightness != nil
+        case .volume: volume != nil
+        case .contrast: contrast != nil
+        case .input: input != nil
+        }
     }
 
     /// The cached value of a feature, in the display's own units.
@@ -109,6 +132,8 @@ public struct DisplayState: Equatable, Sendable {
         case .brightness: brightness?.current
         case .volume: volume?.current
         case .mute: hasHardwareMute ? (isMuted ? DDC.Mute.on : DDC.Mute.off) : nil
+        case .contrast: contrast?.current
+        case .input: input
         }
     }
 
@@ -139,6 +164,20 @@ public struct DisplayState: Equatable, Sendable {
             return setVolume(Level.value(percent: percent, maximum: value.maximum), rewrites: rewrites)
         case .mute(let action):
             return setMuted(action == .toggle ? !isMuted : action == .on, rewrites: rewrites)
+        case .step(.contrast, let up, let fine):
+            guard let value = contrast else { return nil }
+            return Self.noting(up, setContrast(Level.stepped(value, up: up, fine: fine), rewrites: false))
+        case .set(.contrast, let percent):
+            guard let value = contrast else { return nil }
+            return setContrast(Level.value(percent: percent, maximum: value.maximum), rewrites: rewrites)
+        case .input(let wanted):
+            guard input != nil else { return nil }
+            let changed = rewrites || input.map(DDC.Input.init(reported:)) != wanted
+            input = wanted.rawValue
+            return Outcome(
+                writes: changed ? [Write(.input, wanted.rawValue)] : [], feedback: Feedback(kind: .input, fraction: 0))
+        case .step(.input, _, _), .set(.input, _):
+            return nil
         }
     }
 
@@ -175,6 +214,15 @@ public struct DisplayState: Equatable, Sendable {
             hasHardwareMute = true
             isMuted = muted
             return wasMuted == muted ? nil : (wasMuted ? DDC.Mute.on : DDC.Mute.off)
+        case .contrast:
+            let cached = contrast?.current
+            contrast = reading
+            return cached == reading.current ? nil : cached
+        case .input:
+            // Only the input's number counts; some displays report other bits beside it.
+            let cached = input
+            input = reading.current
+            return cached.map { $0 & 0xFF } == reading.current & 0xFF ? nil : cached
         }
     }
 
@@ -187,6 +235,14 @@ public struct DisplayState: Equatable, Sendable {
             writes: changed ? [Write(.brightness, current)] : [],
             feedback: Feedback(kind: .brightness, value: brightness ?? DDC.Value(current: 0, maximum: 0))
         )
+    }
+
+    private mutating func setContrast(_ current: Int, rewrites: Bool) -> Outcome {
+        let changed = rewrites || contrast?.current != current
+        contrast?.current = current
+        return Outcome(
+            writes: changed ? [Write(.contrast, current)] : [],
+            feedback: Feedback(kind: .contrast, value: contrast ?? DDC.Value(current: 0, maximum: 0)))
     }
 
     /// Changing the volume also unmutes, as the system volume keys do.

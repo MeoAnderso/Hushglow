@@ -12,6 +12,9 @@ public enum DDC {
         case brightness = 0x10
         case volume = 0x62
         case mute = 0x8D
+        case contrast = 0x12
+        /// Which of its inputs the display shows.
+        case input = 0x60
 
         /// The feature as it is written on the command line.
         public var name: String {
@@ -19,6 +22,8 @@ public enum DDC {
             case .brightness: "brightness"
             case .volume: "volume"
             case .mute: "mute"
+            case .contrast: "contrast"
+            case .input: "input"
             }
         }
 
@@ -32,6 +37,48 @@ public enum DDC {
     public enum Mute {
         public static let on = 1
         public static let off = 2
+    }
+
+    /// The inputs a display can be switched to (VCP 0x60), as MCCS numbers them. Displays have
+    /// a few of these; which ones is not asked, so all of them are offered.
+    public enum Input: Int, Sendable, CaseIterable {
+        case displayPort1 = 0x0F
+        case displayPort2 = 0x10
+        case hdmi1 = 0x11
+        case hdmi2 = 0x12
+        /// Not in MCCS; the number Dell, LG and others use for USB-C.
+        case usbC = 0x1B
+
+        /// The input from a value the display reports, which some put in the low byte only.
+        public init?(reported value: Int) {
+            self.init(rawValue: value & 0xFF)
+        }
+
+        public var title: String {
+            switch self {
+            case .displayPort1: "DisplayPort 1"
+            case .displayPort2: "DisplayPort 2"
+            case .hdmi1: "HDMI 1"
+            case .hdmi2: "HDMI 2"
+            case .usbC: "USB-C"
+            }
+        }
+
+        /// The input as it is written on the command line.
+        public var name: String {
+            switch self {
+            case .displayPort1: "dp1"
+            case .displayPort2: "dp2"
+            case .hdmi1: "hdmi1"
+            case .hdmi2: "hdmi2"
+            case .usbC: "usbc"
+            }
+        }
+
+        public init?(name: String) {
+            guard let input = Self.allCases.first(where: { $0.name == name }) else { return nil }
+            self = input
+        }
     }
 
     public struct Value: Equatable, Sendable {

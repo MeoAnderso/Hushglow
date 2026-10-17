@@ -88,10 +88,7 @@ public final class DisplaySession<Transport: DisplayTransport> {
 
     /// Whether the display has the control.
     public func has(_ control: Command.Control) -> Bool {
-        switch control {
-        case .brightness: state.brightness != nil
-        case .volume: state.volume != nil
-        }
+        state.has(control)
     }
 
     // MARK: Applying commands
@@ -210,7 +207,9 @@ public final class DisplaySession<Transport: DisplayTransport> {
     /// which is due anyway and knows what to do when the display did not take the write. Read
     /// here, the old value would pass for one set with the display's buttons.
     func readValues() {
-        let controls = Command.Control.allCases.filter { !unverified.contains($0) }
+        // Only the controls the display answered for: one that ignores a request is waited for
+        // each time, and costs every read after it the long pauses.
+        let controls = Command.Control.allCases.filter { has($0) && !unverified.contains($0) }
         if !controls.isEmpty { read(controls.flatMap(\.features), for: Set(controls), purpose: .again) }
     }
 

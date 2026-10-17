@@ -16,10 +16,11 @@ enum CLI {
     private static let usage = """
         Usage:
           DisplayKeys                                   run the menu bar app
-          DisplayKeys step brightness|volume up|down [--fine] [--display <n>]
-          DisplayKeys set brightness|volume <0-100> [--display <n>]
+          DisplayKeys step brightness|volume|contrast up|down [--fine] [--display <n>]
+          DisplayKeys set brightness|volume|contrast <0-100> [--display <n>]
           DisplayKeys mute [toggle|on|off] [--display <n>]   n as numbered by status; every display without it
-          DisplayKeys get brightness|volume|mute
+          DisplayKeys input dp1|dp2|hdmi1|hdmi2|usbc [--display <n>]
+          DisplayKeys get brightness|volume|mute|contrast|input
           DisplayKeys shortcut                          list shortcuts
           DisplayKeys shortcut <action> <keys|none|default>   for example: brightness-up ctrl+alt+up
           DisplayKeys shortcut quarter-steps on|off|cmd|shift|alt|ctrl
@@ -46,7 +47,7 @@ enum CLI {
         case "status": status()
         case "watch-keys": watchKeys(arguments)
         case "get": get(arguments)
-        case "set", "step", "mute": send(arguments)
+        case "set", "step", "mute", "input": send(arguments)
         case "shortcut": shortcut(Array(arguments.dropFirst()))
         case "help", "--help", "-h": succeed(usage)
         default: fail(usage, status: 64)
@@ -109,8 +110,11 @@ enum CLI {
         }
         guard !values.isEmpty else { return fail("No connected display answered.") }
         for value in values {
-            print(
-                feature == .mute ? (value.current == DDC.Mute.on ? "on" : "off") : "\(value.current)/\(value.maximum)")
+            switch feature {
+            case .mute: print(value.current == DDC.Mute.on ? "on" : "off")
+            case .input: print(DDC.Input(reported: value.current)?.name ?? "input \(value.current)")
+            default: print("\(value.current)/\(value.maximum)")
+            }
         }
         return 0
     }
@@ -315,12 +319,13 @@ enum CLI {
             for (index, display) in displays.enumerated() {
                 lines.append(
                     "Display \(index + 1), \(display.name): brightness \(describe(display.brightness)), "
-                        + "volume \(describe(display.volume)), mute \(display.muted ? "on" : "off")")
+                        + "volume \(describe(display.volume)), mute \(display.muted ? "on" : "off")"
+                        + Self.describeExtras(display))
             }
         } else {
             lines.append(
                 "Display: brightness \(describe(status.brightness)), volume \(describe(status.volume)), "
-                    + "mute \(status.muted ? "on" : "off")")
+                    + "mute \(status.muted ? "on" : "off")" + (status.displays?.first.map(Self.describeExtras) ?? ""))
         }
         if let milliseconds = status.lastReadMilliseconds {
             // A read takes its time for each value, so the figure says little without their number.
@@ -359,6 +364,13 @@ enum CLI {
             lines.append("Last input: \(last), \(Int(Date().timeIntervalSince(lastAt))) s ago")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Contrast and the input, for a display that has them.
+    private static func describeExtras(_ display: AppStatus.DisplayStatus) -> String {
+        let contrast = display.contrast.map { ", contrast \(describe($0))" } ?? ""
+        let input = display.input.map { ", input \(DDC.Input(reported: $0)?.title ?? String($0))" } ?? ""
+        return contrast + input
     }
 
     private static func describe(_ shortcut: AppStatus.ShortcutStatus) -> String {
