@@ -1228,6 +1228,43 @@ final class StubMenuHost: StatusMenuHost {
 }
 
 @MainActor
+@Suite struct MenuBarIconTests {
+    /// For a muted display the sun has a crossed-out speaker in its corner; both are templates
+    /// of one size, so the menu bar gives them its colour and nothing moves.
+    @Test func showsAMutedDisplay() throws {
+        let plain = StatusMenu.icon(muted: false)
+        let muted = StatusMenu.icon(muted: true)
+        #expect(plain.isTemplate && muted.isTemplate && plain.size == muted.size)
+        #expect(muted.accessibilityDescription == "DisplayKeys, display muted")
+
+        func inked(_ image: NSImage) throws -> [Bool] {
+            let scale: CGFloat = 4
+            let bitmap = try #require(
+                NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: Int(image.size.width * scale),
+                    pixelsHigh: Int(image.size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                    isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            bitmap.size = image.size
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+            image.draw(in: NSRect(origin: .zero, size: image.size))
+            NSGraphicsContext.restoreGraphicsState()
+            return (0..<bitmap.pixelsHigh).flatMap { y in
+                (0..<bitmap.pixelsWide).map { x in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.5 }
+            }
+        }
+        let plainInk = try inked(plain)
+        let mutedInk = try inked(muted)
+        #expect(zip(plainInk, mutedInk).filter { $0 != $1 }.count > 20)
+        // Large enough to look at.
+        let view = NSImageView(frame: NSRect(x: 0, y: 0, width: 96, height: 48))
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.image = muted
+        try writePreviews(of: view, named: "menu-bar-icon-muted")
+    }
+}
+
+@MainActor
 @Suite struct MenuControlsTests {
     private func label(of row: SliderRow) -> String? {
         row.subviews.compactMap { $0 as? NSTextField }.first?.stringValue

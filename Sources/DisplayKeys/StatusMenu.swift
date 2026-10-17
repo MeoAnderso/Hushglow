@@ -29,11 +29,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var controls: MenuControls?
 
+    /// Whether the icon shows the display as muted.
+    private var showsMuted = false
+
     init(host: any StatusMenuHost) {
         self.host = host
         super.init()
-        let glyph = NSImage(systemSymbolName: "sun.horizon.fill", accessibilityDescription: AppInfo.name)
-        item.button?.image = glyph ?? NSImage(systemSymbolName: "sun.max", accessibilityDescription: AppInfo.name)
+        item.button?.image = Self.icon(muted: false)
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
@@ -65,14 +67,50 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     /// Called when the displays were re-read.
     func displaysChanged() {
-        // The icon dims while there is nothing to control.
-        item.button?.appearsDisabled = host.displayState == nil
+        updateIcon()
         controls?.update()
     }
 
     /// Called when a key, a shortcut or the command line has changed a level.
     func levelsChanged() {
         controls?.levelsChanged()
+    }
+
+    /// The icon dims while there is nothing to control, and shows a muted display.
+    func updateIcon() {
+        item.button?.appearsDisabled = host.displayState == nil
+        let muted = host.displayState?.isMuted == true
+        guard muted != showsMuted else { return }
+        showsMuted = muted
+        item.button?.image = Self.icon(muted: muted)
+    }
+
+    /// The sun over the horizon; for a muted display, with a crossed-out speaker cut into its
+    /// lower right corner. A template, so that the menu bar gives it its colour.
+    static func icon(muted: Bool) -> NSImage {
+        let description = muted ? "\(AppInfo.name), display muted" : AppInfo.name
+        guard let sun = NSImage(systemSymbolName: "sun.horizon.fill", accessibilityDescription: description) else {
+            return NSImage(systemSymbolName: "sun.max", accessibilityDescription: description) ?? NSImage()
+        }
+        guard muted,
+            let speaker = NSImage(systemSymbolName: "speaker.slash.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: (sun.size.height * 0.42).rounded(), weight: .semibold))
+        else { return sun }
+        let icon = NSImage(size: sun.size, flipped: false) { bounds in
+            sun.draw(in: bounds)
+            let badge = NSRect(
+                x: bounds.maxX - speaker.size.width, y: bounds.minY, width: speaker.size.width,
+                height: speaker.size.height)
+            // A gap round the speaker, so that it reads apart from the sun.
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSBezierPath(roundedRect: badge.insetBy(dx: -1, dy: -1), xRadius: 2, yRadius: 2).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            speaker.draw(in: badge)
+            return true
+        }
+        icon.isTemplate = true
+        icon.accessibilityDescription = description
+        return icon
     }
 
     private func build(_ menu: NSMenu) -> MenuControls {

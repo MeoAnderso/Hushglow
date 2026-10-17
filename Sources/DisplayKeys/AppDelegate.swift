@@ -117,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             return
         }
         displays.apply(command) { [unowned self] feedback, isFinal in
+            // Mute may have changed, from the menu as from anywhere else.
+            if isFinal { statusMenu?.updateIcon() }
             // What the menu asks for stops here. Its sliders are ahead of the display as it
             // is, and are not to be moved under the mouse.
             guard showOSD else { return }
