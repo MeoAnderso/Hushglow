@@ -8,8 +8,12 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     final class Handle: Sendable {}
 
     private let lock = NSLock()
-    private let handle = Handle()
+    let handle = Handle()
     private var values: [DDC.Feature: Int] = [.brightness: 50, .volume: 13, .mute: DDC.Mute.off]
+    /// A second display that answers, with values of its own; its requests are written down
+    /// with "2: " in front.
+    private(set) var second: Handle?
+    private var secondValues: [DDC.Feature: Int] = [.brightness: 30]
     private var events: [String] = []
     /// What the display does with a written value; nil means it ignores writes.
     private var onWrite: ((Int) -> Int)? = { $0 }
@@ -22,12 +26,16 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     func displays() -> [Handle] {
         lock.withLock {
             discoveryCount += 1
-            return [handle] + silent
+            return [handle] + (second.map { [$0] } ?? []) + silent
         }
     }
 
     func get(_ display: Handle, _ feature: DDC.Feature) -> DDC.Value? {
         lock.withLock {
+            if display === second {
+                events.append("2: get \(feature)")
+                return secondValues[feature].map { DDC.Value(current: $0, maximum: 100) }
+            }
             guard display === handle else { return nil }
             events.append("get \(feature)")
             return unanswered.contains(feature) ? nil : values[feature].map { DDC.Value(current: $0, maximum: 100) }
@@ -36,6 +44,11 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
 
     func set(_ display: Handle, _ feature: DDC.Feature, value: Int) -> Bool {
         lock.withLock {
+            if display === second {
+                events.append("2: set \(feature)=\(value)")
+                secondValues[feature] = value
+                return true
+            }
             events.append("set \(feature)=\(value)")
             if dropsRemaining > 0 {
                 dropsRemaining -= 1
@@ -57,6 +70,15 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     /// Makes the display stop answering reads of a feature, or answer them again.
     func answer(_ feature: DDC.Feature, _ answers: Bool) {
         lock.withLock { _ = answers ? unanswered.remove(feature) : unanswered.insert(feature).memberAfterInsert }
+    }
+
+    /// Adds a second display that answers, with brightness and no volume.
+    func addSecondDisplay() {
+        lock.withLock { second = Handle() }
+    }
+
+    func secondValue(_ feature: DDC.Feature) -> Int? {
+        lock.withLock { secondValues[feature] }
     }
 
     func addDisplayWithoutDDC() {
@@ -500,8 +522,99 @@ private final class Recorder {
             recorder.finals.append(isFinal)
         }
         await settle()
-        #expect(recorder.fractions == [nil, nil])
-        #expect(recorder.finals == [false, true])
+        // There is nothing to read for, so the answer is final at once.
+        #expect(recorder.fractions == [nil])
+        #expect(recorder.finals == [true])
         #expect(!transport.takeEvents().contains { $0.hasPrefix("set") })
+    }
+}
+
+/// Two displays that answer DDC, each with a session of its own.
+@MainActor
+@Suite struct TwoDisplaysTests {
+    private let transport = FakeTransport()
+    private let queue = DispatchQueue(label: "TwoDisplaysTests")
+    private let recorder = Recorder()
+    private let displays: Displays<FakeTransport>
+
+    init() async {
+        transport.addSecondDisplay()
+        var timing = Displays<FakeTransport>.Timing()
+        timing.verifyDelay = 0
+        let recorder = recorder
+        displays = Displays(
+            transport: transport, queue: queue, timing: timing, now: { recorder.now }, onWriteFailure: {})
+        displays.refresh()
+        await settle()
+        _ = transport.takeEvents()
+    }
+
+    private func settle() async {
+        for _ in 0..<8 {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                queue.async { DispatchQueue.main.async { continuation.resume() } }
+            }
+        }
+    }
+
+    private func press(_ command: Command, on targets: [FakeTransport.Handle]? = nil) {
+        let recorder = recorder
+        displays.apply(command, to: targets) { feedback, isFinal in
+            recorder.fractions.append(feedback?.fraction)
+            recorder.finals.append(isFinal)
+        }
+    }
+
+    private let brightnessUp = Command.step(.brightness, up: true, fine: false)
+
+    @Test func eachDisplayHasASession() throws {
+        let second = try #require(transport.second)
+        #expect(displays.controlled.count == 2)
+        #expect(displays.state(of: transport.handle)?.brightness?.current == 50)
+        #expect(displays.state(of: second)?.brightness?.current == 30)
+        // The second has no volume; the first does.
+        #expect(displays.state(of: second)?.volume == nil && displays.hasVolume)
+    }
+
+    @Test func aCommandForOneDisplayLeavesTheOtherAlone() async throws {
+        let second = try #require(transport.second)
+        press(brightnessUp, on: [second])
+        #expect(recorder.fractions == [0.31])
+        await settle()
+        #expect(transport.takeEvents() == ["2: set brightness=31", "2: get brightness"])
+        #expect(displays.state(of: second)?.brightness?.current == 31)
+        #expect(displays.state(of: transport.handle)?.brightness?.current == 50)
+    }
+
+    /// A command for every display goes to each, and the first display's level is shown.
+    @Test func aCommandForEveryDisplayGoesToEach() async {
+        press(brightnessUp)
+        #expect(recorder.fractions == [0.56] && recorder.finals == [true])
+        await settle()
+        #expect(transport.value(.brightness) == 56 && transport.secondValue(.brightness) == 31)
+    }
+
+    /// Each display keeps its own account of when it was heard from: writing to one does not
+    /// make the other's cache fresh.
+    @Test func eachDisplayIsHeardFromOnItsOwn() async throws {
+        let second = try #require(transport.second)
+        recorder.now += 6
+        press(brightnessUp, on: [transport.handle])
+        await settle()
+        _ = transport.takeEvents()
+        press(brightnessUp, on: [second])
+        await settle()
+        #expect(Array(transport.takeEvents().prefix(2)) == ["2: get brightness", "2: set brightness=31"])
+    }
+
+    /// A display without the control is left out, and when none of those asked has it, there is
+    /// nothing to do.
+    @Test func aDisplayWithoutTheControlIsLeftOut() async throws {
+        let second = try #require(transport.second)
+        press(.step(.volume, up: true, fine: false))
+        await settle()
+        #expect(!transport.takeEvents().contains { $0.hasPrefix("2:") })
+        press(.step(.volume, up: true, fine: false), on: [second])
+        #expect(recorder.fractions.last == .some(nil) && recorder.finals.last == true)
     }
 }
