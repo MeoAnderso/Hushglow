@@ -21,6 +21,8 @@ protocol StatusMenuHost: AnyObject {
     var keyboardKeysAreActive: Bool { get }
     /// Applies a command to one display, or to all of them when none is given.
     func run(_ command: Command, showOSD: Bool, on display: MenuDisplay.ID?)
+    /// A scroll over the menu bar icon asked for a brightness step, in the menu bar of this screen.
+    func stepBrightness(up: Bool, fromMenuBarOf screen: NSScreen?)
     /// Reads the displays' values again, without looking for the displays afresh.
     func readDisplays()
     /// Reads again whether the keyboard's own keys are allowed.
@@ -42,6 +44,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     /// Whether the icon shows the display as muted.
     private var showsMuted = false
+    private var scrolling = ScrollSteps()
+    private var scrollMonitor: Any?
 
     init(host: any StatusMenuHost) {
         self.host = host
@@ -51,6 +55,31 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
         menu.delegate = self
         item.menu = menu
+        // The icon's window is the app's own, so scrolls over it come to the app, whichever app
+        // is in front, and need no permission. Every other scroll goes on as it was.
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            // Monitors are called on the main thread, with the event the app is handing out.
+            nonisolated(unsafe) let event = event
+            let isTaken = MainActor.assumeIsolated { self?.take(event) ?? false }
+            return isTaken ? nil : event
+        }
+    }
+
+    /// Takes a scroll over the icon; false for any other.
+    private func take(_ event: NSEvent) -> Bool {
+        guard let window = item.button?.window, event.window === window else { return false }
+        scrolled(event, in: window)
+        return true
+    }
+
+    /// A scroll over the icon steps the brightness, as one over a slider moves it.
+    private func scrolled(_ event: NSEvent, in window: NSWindow) {
+        guard event.momentumPhase.isEmpty else { return }
+        let points = LevelSlider.scrolled(
+            x: event.scrollingDeltaX, y: event.scrollingDeltaY, isInverted: event.isDirectionInvertedFromDevice)
+        let steps = scrolling.steps(for: points, isPrecise: event.hasPreciseScrollingDeltas)
+        for _ in 0..<abs(steps) { host.stepBrightness(up: steps > 0, fromMenuBarOf: window.screen) }
+        if event.phase == .ended { scrolling = ScrollSteps() }
     }
 
     /// Where the menu bar item is on screen, for placing the indicator beneath it.
@@ -419,5 +448,21 @@ final class SliderRow: NSView {
         guard whole != shownPercent else { return }
         shownPercent = whole
         valueLabel.stringValue = "\(whole)%"
+    }
+}
+
+/// Turns a scroll into steps: a mouse's wheel one step a notch, a trackpad one step for every
+/// stretch the fingers travel, with what is left over kept for the next part of the scroll.
+struct ScrollSteps {
+    /// How far the fingers travel on a trackpad for one step, in points.
+    static let pointsPerStep: CGFloat = 12
+    private var carried: CGFloat = 0
+
+    mutating func steps(for points: CGFloat, isPrecise: Bool) -> Int {
+        guard isPrecise else { return points == 0 ? 0 : points > 0 ? 1 : -1 }
+        carried += points
+        let steps = Int((carried / Self.pointsPerStep).rounded(.towardZero))
+        carried -= CGFloat(steps) * Self.pointsPerStep
+        return steps
     }
 }

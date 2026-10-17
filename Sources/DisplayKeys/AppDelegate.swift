@@ -121,6 +121,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
 
     // MARK: Commands
 
+    /// A scroll over the menu bar icon steps the brightness of the display whose menu bar it
+    /// is; on a screen that is not under control, of the display the keys would change.
+    func stepBrightness(up: Bool, fromMenuBarOf screen: NSScreen?) {
+        let command = Command.step(.brightness, up: up, fine: false)
+        let onScreen = displays?.controlled.first { $0.identity?.screen == screen }
+        run(command, showOSD: true, to: onScreen.map { [$0] } ?? keyTargets(for: command))
+    }
+
     /// Applies a command from the menu to one display, or to all of them.
     func run(_ command: Command, showOSD: Bool, on display: MenuDisplay.ID?) {
         let handle = displays?.controlled.first { ObjectIdentifier($0) == display }

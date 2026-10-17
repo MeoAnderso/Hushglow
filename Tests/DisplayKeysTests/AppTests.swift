@@ -1264,6 +1264,7 @@ final class StubMenuHost: StatusMenuHost {
         lastLeftover = leftover
         _ = Unmanaged.passRetained(leftover).autorelease()
     }
+    func stepBrightness(up: Bool, fromMenuBarOf screen: NSScreen?) {}
     func readDisplays() {}
     func refreshKeyboardAccess() {}
     func enableKeyboardKeys() {}
@@ -1345,6 +1346,20 @@ final class StubMenuHost: StatusMenuHost {
         #expect(rows.contrastRow.slider.accessibilityPerformIncrement())
         #expect(host.commands == [.input(.usbC), .set(.contrast, percent: 75)])
         #expect(host.targets == [StubMenuHost.firstID, StubMenuHost.firstID])
+    }
+
+    /// A scroll over the menu bar icon steps the brightness: a wheel a step a notch, a trackpad
+    /// a step for every twelve points the fingers travel, with the rest kept.
+    @Test func aScrollOverTheIconStepsTheBrightness() {
+        var wheel = ScrollSteps()
+        #expect(wheel.steps(for: 3, isPrecise: false) == 1 && wheel.steps(for: -1, isPrecise: false) == -1)
+        #expect(wheel.steps(for: 0, isPrecise: false) == 0)
+        var trackpad = ScrollSteps()
+        #expect(trackpad.steps(for: 5, isPrecise: true) == 0)
+        #expect(trackpad.steps(for: 8, isPrecise: true) == 1)
+        #expect(trackpad.steps(for: 30, isPrecise: true) == 2)
+        #expect(trackpad.steps(for: -10, isPrecise: true) == 0)
+        #expect(trackpad.steps(for: -13, isPrecise: true) == -1)
     }
 
     @Test func theKeysFollowThePointerAndTheSound() {
