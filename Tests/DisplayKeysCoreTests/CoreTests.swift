@@ -227,6 +227,27 @@ import Testing
         #expect(state.brightness?.current == 56)
     }
 
+    /// A step at either end of the range changes nothing, and says which end it was pushed
+    /// against, for the indicator to show.
+    @Test func aStepPastEitherEndSaysWhichEndItMet() {
+        var state = state(volume: 100)
+        #expect(state.apply(.step(.brightness, up: true, fine: false))?.feedback.pushedAgainst == nil)
+        let top = state.apply(.step(.volume, up: true, fine: false))
+        #expect(top?.writes == [] && top?.feedback.pushedAgainst == .top)
+        #expect(state.apply(.step(.volume, up: false, fine: true))?.feedback.pushedAgainst == nil)
+
+        var low = self.state(volume: 0)
+        #expect(low.apply(.step(.volume, up: false, fine: false))?.feedback.pushedAgainst == .bottom)
+        #expect(low.apply(.step(.volume, up: true, fine: false))?.feedback.pushedAgainst == nil)
+
+        // At the top but muted, a step up unmutes, which is something.
+        var muted = self.state(volume: 100, mute: DDC.Value(current: DDC.Mute.on, maximum: 2))
+        let unmuted = muted.apply(.step(.volume, up: true, fine: false))
+        #expect(unmuted?.writes == [.init(.mute, DDC.Mute.off)] && unmuted?.feedback.pushedAgainst == nil)
+        // A value set outright is never a push, even when it is already there.
+        #expect(muted.apply(.set(.volume, percent: 100))?.feedback.pushedAgainst == nil)
+    }
+
     @Test func togglesHardwareMute() {
         var state = state()
         #expect(state.apply(.mute(.toggle))?.writes == [.init(.mute, DDC.Mute.on)])

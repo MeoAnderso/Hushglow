@@ -39,11 +39,20 @@ public struct Feedback: Equatable, Sendable {
         case muted
     }
 
+    /// An end of the range.
+    public enum End: Equatable, Sendable {
+        case bottom
+        case top
+    }
+
     public var kind: Kind
     /// The level as a share of the display's range.
     public var fraction: Double
     /// Where the level bar should be filled to; see `Level.barPosition`.
     public var barPosition: Double
+    /// The end of the range a step pushed against and could not pass, so that it changed
+    /// nothing; nil for anything else.
+    public var pushedAgainst: End?
 
     public init(kind: Kind, fraction: Double) {
         self.kind = kind
@@ -118,19 +127,28 @@ public struct DisplayState: Equatable, Sendable {
         switch command {
         case .step(.brightness, let up, let fine):
             guard let value = brightness else { return nil }
-            return setBrightness(Level.stepped(value, up: up, fine: fine), rewrites: false)
+            return Self.noting(up, setBrightness(Level.stepped(value, up: up, fine: fine), rewrites: false))
         case .set(.brightness, let percent):
             guard let value = brightness else { return nil }
             return setBrightness(Level.value(percent: percent, maximum: value.maximum), rewrites: rewrites)
         case .step(.volume, let up, let fine):
             guard let value = volume else { return nil }
-            return setVolume(Level.stepped(value, up: up, fine: fine), rewrites: false)
+            return Self.noting(up, setVolume(Level.stepped(value, up: up, fine: fine), rewrites: false))
         case .set(.volume, let percent):
             guard let value = volume else { return nil }
             return setVolume(Level.value(percent: percent, maximum: value.maximum), rewrites: rewrites)
         case .mute(let action):
             return setMuted(action == .toggle ? !isMuted : action == .on, rewrites: rewrites)
         }
+    }
+
+    /// A step always moves, except at an end of the range, so a step that writes nothing was
+    /// pushed against the end it was heading for. A step that unmutes writes the unmute.
+    private static func noting(_ up: Bool, _ outcome: Outcome) -> Outcome {
+        guard outcome.writes.isEmpty else { return outcome }
+        var outcome = outcome
+        outcome.feedback.pushedAgainst = up ? .top : .bottom
+        return outcome
     }
 
     /// Replaces a cached feature with what the display reports. Returns the cached value it

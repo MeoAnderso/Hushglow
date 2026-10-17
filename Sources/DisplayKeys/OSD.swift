@@ -38,6 +38,8 @@ final class OSD: NSObject {
     static let leaveScale: CGFloat = 0.96
     static let motionKey = "motion"
     static let fadeKey = "fade"
+    static let nudgeKey = "nudge"
+    static let shakeKey = "shake"
     /// The strength of the glass in the see-through style.
     private static let seeThroughOpacity: CGFloat = 0.55
 
@@ -88,6 +90,7 @@ final class OSD: NSObject {
         if !panel.isVisible { panel.orderFrontRegardless() }
         // From wherever a leaving that is under way has got to.
         appear(from: wasVisible ? opacity : 0, moves: moves)
+        if moves { react(to: indication) }
         // Whatever was due for what was shown before is off, the end of its fade included.
         NSObject.cancelPreviousPerformRequests(withTarget: self)
         if indication != held { leave(#selector(timeIsUp), after: Self.visibleDuration) }
@@ -155,6 +158,38 @@ final class OSD: NSObject {
             layer.add(grow, forKey: Self.motionKey)
         }
         CATransaction.commit()
+    }
+
+    /// A step that met an end of the range nudges the capsule towards that end, where nothing
+    /// happened at all before; one held there nudges it again each time the last nudge is
+    /// over. A change the display refused shakes it, as macOS shakes a password it refuses.
+    /// Both move it sideways on top of whatever else it is doing.
+    private func react(to indication: Indication) {
+        guard let layer = stage?.layer else { return }
+        switch indication {
+        case .level(let feedback):
+            guard let end = feedback.pushedAgainst, layer.animation(forKey: Self.nudgeKey) == nil else { return }
+            let toward: CGFloat = end == .top ? 1 : -1
+            layer.add(Self.sideways([0, 5 * toward, 0], keyTimes: [0, 0.3, 1], duration: 0.32), forKey: Self.nudgeKey)
+        case .refused:
+            layer.add(
+                Self.sideways(
+                    [0, -9, 8, -6, 4, -2, 0], keyTimes: [0, 0.15, 0.32, 0.5, 0.67, 0.84, 1], duration: 0.45),
+                forKey: Self.shakeKey)
+        default:
+            break
+        }
+    }
+
+    static func sideways(_ offsets: [CGFloat], keyTimes: [NSNumber], duration: TimeInterval) -> CAKeyframeAnimation {
+        let move = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        move.values = offsets
+        move.keyTimes = keyTimes
+        move.duration = duration
+        move.isAdditive = true
+        move.timingFunctions = Array(
+            repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: max(offsets.count - 1, 1))
+        return move
     }
 
     private static func fade(from: Float, to: Float, duration: TimeInterval) -> CABasicAnimation {

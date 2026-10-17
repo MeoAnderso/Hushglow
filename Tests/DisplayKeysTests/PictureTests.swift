@@ -311,6 +311,45 @@ extension GlassWindowTests {
         backdrop.close()
     }
 
+    /// A step that meets an end of the range nudges the capsule towards that end, and a refusal
+    /// shakes it; each moves it sideways on top of whatever else it is doing. Runs only when
+    /// PREVIEW_DIR is set, since it shows the indicator, and only without Reduce Motion.
+    @Test func nudgesAtAnEndAndShakesWhenRefused() async throws {
+        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil,
+            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        func pushed(_ end: Feedback.End) -> Indication {
+            var feedback = Feedback(kind: .volume, fraction: end == .top ? 1 : 0)
+            feedback.pushedAgainst = end
+            return .level(feedback)
+        }
+        let osd = OSD()
+        osd.show(.level(Feedback(kind: .volume, fraction: 0.5)))
+        let layer = try #require(osd.stage?.layer)
+        #expect(layer.animation(forKey: OSD.nudgeKey) == nil)
+
+        osd.show(pushed(.top))
+        let nudge = try #require(layer.animation(forKey: OSD.nudgeKey) as? CAKeyframeAnimation)
+        #expect(nudge.isAdditive && (nudge.values?[1] as? CGFloat ?? 0) > 0)
+        // Held there, it does not start again before it is over.
+        osd.show(pushed(.top))
+        #expect(layer.animation(forKey: OSD.nudgeKey) === nudge)
+        for _ in 0..<100 where layer.animation(forKey: OSD.nudgeKey) != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        osd.show(pushed(.bottom))
+        let down = try #require(layer.animation(forKey: OSD.nudgeKey) as? CAKeyframeAnimation)
+        #expect((down.values?[1] as? CGFloat ?? 0) < 0)
+
+        osd.show(.refused(.brightness))
+        let shake = try #require(layer.animation(forKey: OSD.shakeKey) as? CAKeyframeAnimation)
+        #expect(shake.isAdditive && (shake.values?.count ?? 0) > 4)
+
+        osd.timeIsUp()
+        for _ in 0..<100 where osd.isOnScreen { try await Task.sleep(for: .milliseconds(50)) }
+    }
+
     /// An open menu keeps the main run loop in its event-tracking mode, and whatever is
     /// scheduled for the default mode alone waits until the menu closes. An indicator that a
     /// key brings up meanwhile has to leave on time all the same. Runs only when PREVIEW_DIR
