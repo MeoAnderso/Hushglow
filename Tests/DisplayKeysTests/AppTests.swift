@@ -1707,7 +1707,7 @@ final class StubMenuHost: StatusMenuHost {
     /// line, in a process of its own, does. The on-screen tests that run beside these can keep
     /// the main thread for seconds, as they do on GitHub's runners, so the wait is far longer
     /// than the command line's.
-    private static let patience: TimeInterval = 30
+    nonisolated private static let patience: TimeInterval = 30
 
     private func ask(_ request: ChannelRequest, timeout: TimeInterval = patience) async -> ChannelReply? {
         let client = CommandClient(name: name)
