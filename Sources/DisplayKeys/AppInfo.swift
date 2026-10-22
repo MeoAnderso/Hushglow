@@ -60,17 +60,31 @@ enum SettingsCarryOver {
 /// all say the same.
 enum KeyboardKeys {
     /// As a title, in the menu and on buttons.
-    static let name = "Brightness and Volume Keys"
+    static var name: String {
+        String(localized: "Brightness and Volume Keys", comment: "The keyboard's own brightness, volume and mute keys")
+    }
     /// Within a sentence, and as a heading in Settings with its first letter capitalised.
-    static let phrase = "brightness and volume keys"
+    static var phrase: String {
+        String(localized: "brightness and volume keys", comment: "The keyboard's own keys, within a sentence")
+    }
     /// The checkbox, in Settings and in the notice after an update: ticked, a new build that
     /// runs without access raises the subject again.
-    static let askAgain = "Ask again after updates"
+    static var askAgain: String { String(localized: "Ask again after updates") }
 }
 
 extension String {
     /// The text with its first letter capitalised, for a phrase used as a heading.
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+extension ListFormatter {
+    /// Names joined as the language of the app's text joins them, such as "A and B". That is
+    /// the language the sentence around them is in, which need not be the system's region.
+    static func joinedInAppLanguage(_ names: [String]) -> String {
+        let formatter = ListFormatter()
+        formatter.locale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        return formatter.string(from: names) ?? names.joined(separator: ", ")
+    }
 }
 
 enum ProcessMemory {
@@ -214,8 +228,8 @@ enum ControlSettings {
 
         var title: String {
             switch self {
-            case .pointer: "The one under the pointer"
-            case .every: "Every display"
+            case .pointer: String(localized: "The one under the pointer", comment: "Which display the keys change")
+            case .every: String(localized: "Every display", comment: "Which display the keys change")
             }
         }
     }
@@ -250,9 +264,9 @@ enum IndicatorSettings {
 
         var title: String {
             switch self {
-            case .glass: "Glass"
-            case .seeThrough: "See-through glass"
-            case .plain: "Plain tint"
+            case .glass: String(localized: "Glass", comment: "A style of the indicator")
+            case .seeThrough: String(localized: "See-through glass", comment: "A style of the indicator")
+            case .plain: String(localized: "Plain tint", comment: "A style of the indicator")
             }
         }
     }
@@ -263,8 +277,8 @@ enum IndicatorSettings {
 
         var title: String {
             switch self {
-            case .underMenuBarIcon: "Under the menu bar icon"
-            case .corner: "Top-right corner"
+            case .underMenuBarIcon: String(localized: "Under the menu bar icon", comment: "Where the indicator appears")
+            case .corner: String(localized: "Top-right corner", comment: "Where the indicator appears")
             }
         }
     }

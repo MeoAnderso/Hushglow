@@ -29,7 +29,15 @@ public struct Shortcut: Equatable, Sendable {
         }
 
         /// The name of a single modifier as the app writes it for people, such as `Cmd`.
-        public var title: String? { name?.capitalized }
+        public var title: String? {
+            switch self {
+            case .command: String(localized: "Cmd", comment: "The Command key, abbreviated as on a keyboard")
+            case .shift: String(localized: "Shift", comment: "The Shift key")
+            case .option: String(localized: "Alt", comment: "The Option key, which keyboards also mark Alt")
+            case .control: String(localized: "Ctrl", comment: "The Control key, abbreviated as on a keyboard")
+            default: nil
+            }
+        }
 
         /// The modifiers a quarter step can add, in the order they are offered. Cmd comes first
         /// and is the default: with the default shortcuts, macOS uses Ctrl+Alt+Shift with the
@@ -77,11 +85,11 @@ public struct Shortcut: Equatable, Sendable {
 
         public var title: String {
             switch self {
-            case .brightnessUp: "Brightness up"
-            case .brightnessDown: "Brightness down"
-            case .volumeUp: "Volume up"
-            case .volumeDown: "Volume down"
-            case .mute: "Mute"
+            case .brightnessUp: String(localized: "Brightness up", comment: "An action a shortcut can have")
+            case .brightnessDown: String(localized: "Brightness down", comment: "An action a shortcut can have")
+            case .volumeUp: String(localized: "Volume up", comment: "An action a shortcut can have")
+            case .volumeDown: String(localized: "Volume down", comment: "An action a shortcut can have")
+            case .mute: String(localized: "Mute", comment: "An action a shortcut can have")
             }
         }
 
@@ -225,15 +233,25 @@ public struct Shortcut: Equatable, Sendable {
             separator: " ")
     }
 
-    fileprivate static let modifierOrder: [(modifier: Modifiers, name: String, symbol: String, word: String)] = [
-        (.control, "ctrl", "⌃", "Control"), (.option, "alt", "⌥", "Option"), (.shift, "shift", "⇧", "Shift"),
-        (.command, "cmd", "⌘", "Command"),
-    ]
+    fileprivate static var modifierOrder: [(modifier: Modifiers, name: String, symbol: String, word: String)] {
+        [
+            (.control, "ctrl", "⌃", String(localized: "Control", comment: "The Control key, as VoiceOver says it")),
+            (.option, "alt", "⌥", String(localized: "Option", comment: "The Option key, as VoiceOver says it")),
+            (.shift, "shift", "⇧", String(localized: "Shift", comment: "The Shift key")),
+            (.command, "cmd", "⌘", String(localized: "Command", comment: "The Command key, as VoiceOver says it")),
+        ]
+    }
 
-    private static let keyWords: [String: String] = [
-        "up": "Up Arrow", "down": "Down Arrow", "left": "Left Arrow", "right": "Right Arrow",
-        "pageup": "Page Up", "pagedown": "Page Down", "home": "Home", "end": "End",
-    ]
+    /// The keys that are shown or spoken by name.
+    private static var keyWords: [String: String] {
+        [
+            "up": String(localized: "Up Arrow"), "down": String(localized: "Down Arrow"),
+            "left": String(localized: "Left Arrow"), "right": String(localized: "Right Arrow"),
+            "pageup": String(localized: "Page Up"), "pagedown": String(localized: "Page Down"),
+            "home": String(localized: "Home", comment: "The Home key"),
+            "end": String(localized: "End", comment: "The End key"),
+        ]
+    }
 
     private static let keySymbols: [String: String] = ["up": "↑", "down": "↓", "left": "←", "right": "→"]
 

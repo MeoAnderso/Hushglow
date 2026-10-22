@@ -208,6 +208,15 @@ creates the release on GitHub with both files, and the app's feed address points
 latest release. Until the app is notarized, macOS refuses to open a downloaded copy at first;
 in System Settings → Privacy & Security, choose Open Anyway.
 
+### Translating
+
+Every word the app shows comes from `Resources/Localizable.xcstrings`, a string catalog in
+which English is the source; Xcode edits one, and so does any editor, being JSON. Add a
+language there and `Scripts/build-app.sh` builds it in. After changing text in the code, run
+`Scripts/strings.sh`, which brings the catalog up to date; continuous integration checks that
+it was. The names of System Settings' lists and of macOS's keys should be the ones macOS uses
+in that language. The command line's own messages stay in English.
+
 ### Uninstalling
 
 Quit the app, turn off Launch at Login, delete `/Applications/DisplayKeys.app`, remove it

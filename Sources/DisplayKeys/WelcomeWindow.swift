@@ -83,18 +83,27 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
 
         // Both occasions share one design; only the title and the last paragraph differ.
         add(
-            text("\(AppInfo.name) \(occasion == .firstLaunch ? "is running" : "was updated")", size: 20, weight: .bold),
+            text(
+                occasion == .firstLaunch
+                    ? String(localized: "\(AppInfo.name) is running")
+                    : String(localized: "\(AppInfo.name) was updated"),
+                size: 20, weight: .bold),
             gap: 8)
         if let shortcuts = shortcutList(width: inner) {
-            add(text("Look for the sun in the menu bar. These shortcuts control your display; try one:"), gap: 12)
+            add(
+                text(
+                    String(
+                        localized: "Look for the sun in the menu bar. These shortcuts control your display; try one:")),
+                gap: 12)
             add(shortcuts, gap: 8)
-            let change = "You can also change them, if you want. Choose Settings… from the sun’s menu."
+            let change = String(
+                localized: "You can also change them, if you want. Choose Settings… from the sun’s menu.")
             let why = occasion == .firstLaunch ? Self.whyFunctionKeys() : nil
             add(
                 text([why, change].compactMap { $0 }.joined(separator: " "), size: 12, color: .secondaryLabelColor),
                 gap: 14)
         } else {
-            add(text("Look for the sun in the menu bar."), gap: 12)
+            add(text(String(localized: "Look for the sun in the menu bar.")), gap: 12)
         }
         add(text(Self.keysText(occasion, keysAreActive: keysAreActive), size: 12, color: .secondaryLabelColor), gap: 22)
 
@@ -121,11 +130,14 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         functionKeysAreStandard: Bool = UserDefaults.standard.bool(forKey: "com.apple.keyboard.fnState")
     ) -> String? {
         guard set == .functionKeys, !managers.isEmpty else { return nil }
-        let names = managers.joined(separator: " and ")
-        let uses = managers.count == 1 ? "uses" : "use"
+        let names = ListFormatter.joinedInAppLanguage(managers)
+        let why =
+            managers.count == 1
+            ? String(localized: "\(names) uses Ctrl+Alt with the arrow keys, so these are on the function keys.")
+            : String(localized: "\(names) use Ctrl+Alt with the arrow keys, so these are on the function keys.")
         // On an Apple keyboard the top row sends brightness and volume unless set otherwise.
-        let fn = functionKeysAreStandard ? "" : " On an Apple keyboard, hold fn with them."
-        return "\(names) \(uses) Ctrl+Alt with the arrow keys, so these are on the function keys.\(fn)"
+        let fn = functionKeysAreStandard ? nil : String(localized: "On an Apple keyboard, hold fn with them.")
+        return [why, fn].compactMap { $0 }.joined(separator: " ")
     }
 
     /// What to say about the keyboard's own keys.
@@ -133,15 +145,21 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         let list = AccessibilityAccess.listName
         switch (occasion, keysAreActive) {
         case (.firstLaunch, true):
-            return "The \(KeyboardKeys.phrase) on your keyboard control the display too."
+            return String(localized: "The \(KeyboardKeys.phrase) on your keyboard control the display too.")
         case (.firstLaunch, false):
-            return "The \(KeyboardKeys.phrase) on your keyboard work too once \(AppInfo.name) is switched on "
-                + "under \(list) in System Settings. It uses that only for those keys."
+            return String(
+                localized: """
+                    The \(KeyboardKeys.phrase) on your keyboard work too once \(AppInfo.name) is switched on \
+                    under \(list) in System Settings. It uses that only for those keys.
+                    """)
         case (.update, true):
-            return "The \(KeyboardKeys.phrase) on your keyboard control the display, as before."
+            return String(localized: "The \(KeyboardKeys.phrase) on your keyboard control the display, as before.")
         case (.update, false):
-            return "The \(KeyboardKeys.phrase) on your keyboard are off until \(AppInfo.name) is added to "
-                + "\(list) again in System Settings. macOS grants that to one build at a time."
+            return String(
+                localized: """
+                    The \(KeyboardKeys.phrase) on your keyboard are off until \(AppInfo.name) is added to \
+                    \(list) again in System Settings. macOS grants that to one build at a time.
+                    """)
         }
     }
 
@@ -156,10 +174,11 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         }
         let row: [NSButton] =
             keysAreActive
-            ? [button("OK", #selector(dismiss), key: "\r", minimumWidth: 110)]
+            ? [button(String(localized: "OK"), #selector(dismiss), key: "\r", minimumWidth: 110)]
             : [
-                button("Not Now", #selector(dismiss), key: "\u{1b}", minimumWidth: 110),
-                button("Turn On \(KeyboardKeys.name)…", #selector(turnOn), key: "\r", minimumWidth: 0),
+                button(String(localized: "Not Now"), #selector(dismiss), key: "\u{1b}", minimumWidth: 110),
+                button(
+                    String(localized: "Turn On \(KeyboardKeys.name)…"), #selector(turnOn), key: "\r", minimumWidth: 0),
             ]
         return Layout.row(row, spacing: 10)
     }
@@ -168,9 +187,9 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
     private func shortcutList(width: CGFloat) -> NSView? {
         keyCaps = [:]
         let controls: [(name: String, symbol: String, actions: [Shortcut.Action])] = [
-            ("Brightness", "sun.max.fill", [.brightnessDown, .brightnessUp]),
-            ("Volume", "speaker.wave.2.fill", [.volumeDown, .volumeUp]),
-            ("Mute", "speaker.slash.fill", [.mute]),
+            (Command.Control.brightness.title, "sun.max.fill", [.brightnessDown, .brightnessUp]),
+            (Command.Control.volume.title, "speaker.wave.2.fill", [.volumeDown, .volumeUp]),
+            (String(localized: "Mute"), "speaker.slash.fill", [.mute]),
         ]
         var rows: [[NSView]] = []
         for control in controls {

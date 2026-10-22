@@ -139,8 +139,10 @@ final class ShortcutField: ContrastAwareView {
 
     /// What the field shows: the shortcut, or while it waits for keys the modifiers held so far.
     var shownText: String {
-        guard isRecording else { return shortcut?.symbols ?? "None" }
-        return heldModifiers.isEmpty ? "Press keys…" : heldModifiers.symbols + "…"
+        guard isRecording else { return shortcut?.symbols ?? String(localized: "None", comment: "No shortcut") }
+        return heldModifiers.isEmpty
+            ? String(localized: "Press keys…")
+            : String(localized: "\(heldModifiers.symbols)…", comment: "Keys held so far")
     }
 
     private var outline: NSBezierPath {
@@ -172,10 +174,14 @@ final class ShortcutField: ContrastAwareView {
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .button }
     override func accessibilityLabel() -> String? { title }
-    override func accessibilityHelp() -> String? { "Press Space, then the keys for the shortcut. Delete removes it." }
+    override func accessibilityHelp() -> String? {
+        String(localized: "Press Space, then the keys for the shortcut. Delete removes it.")
+    }
 
     override func accessibilityValue() -> Any? {
-        isRecording ? "Recording" : shortcut?.spoken ?? "None"
+        isRecording
+            ? String(localized: "Recording", comment: "A shortcut field waiting for keys")
+            : shortcut?.spoken ?? String(localized: "None", comment: "No shortcut")
     }
 
     override func accessibilityPerformPress() -> Bool {
@@ -230,9 +236,9 @@ final class ShortcutControl: NSView {
         resetButton = button("arrow.counterclockwise.circle.fill", #selector(reset))
         removeButton = button("xmark.circle.fill", #selector(remove))
         super.init(frame: .zero)
-        field.title = "\(title) shortcut"
-        removeButton.setAccessibilityLabel("Remove the \(title) shortcut")
-        removeButton.toolTip = "Remove"
+        field.title = String(localized: "\(title) shortcut", comment: "An action, such as Volume up")
+        removeButton.setAccessibilityLabel(String(localized: "Remove the \(title) shortcut"))
+        removeButton.toolTip = String(localized: "Remove", comment: "Removes a shortcut")
         for button in [resetButton, removeButton] { button.target = self }
         field.onFocusChange = { [unowned self] in
             fieldHasFocus = $0
@@ -270,8 +276,9 @@ final class ShortcutControl: NSView {
             button.setAccessibilityElement(applies)
         }
         if let defaultShortcut {
-            resetButton.setAccessibilityLabel("Put back the default shortcut, \(defaultShortcut.spoken)")
-            resetButton.toolTip = "Put back \(defaultShortcut.symbols)"
+            resetButton.setAccessibilityLabel(
+                String(localized: "Put back the default shortcut, \(defaultShortcut.spoken)"))
+            resetButton.toolTip = String(localized: "Put back \(defaultShortcut.symbols)", comment: "A shortcut")
         }
     }
 

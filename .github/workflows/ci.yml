@@ -48,5 +48,12 @@ jobs:
       - name: Lint
         run: swift format lint --strict --recursive Sources Tests Scripts Package.swift
 
+      # Every string the interface looks up must be in the catalog that translations go into.
+      - name: String catalog
+        run: |
+          Scripts/strings.sh
+          git diff --exit-code Resources/Localizable.xcstrings \
+            || { echo "::error::Run Scripts/strings.sh and commit Resources/Localizable.xcstrings."; exit 1; }
+
       - name: Build the app
         run: Scripts/build-app.sh

@@ -10,10 +10,10 @@ public enum Command: Equatable, Sendable {
         /// The control's name at the start of a sentence.
         public var title: String {
             switch self {
-            case .brightness: "Brightness"
-            case .volume: "Volume"
-            case .contrast: "Contrast"
-            case .input: "Input"
+            case .brightness: String(localized: "Brightness")
+            case .volume: String(localized: "Volume")
+            case .contrast: String(localized: "Contrast")
+            case .input: String(localized: "Input", comment: "The input a display shows, such as HDMI 1")
             }
         }
 

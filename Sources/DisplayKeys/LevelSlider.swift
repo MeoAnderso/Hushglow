@@ -241,7 +241,9 @@ final class LevelSlider: NSView {
     override func accessibilityValue() -> Any? { NSNumber(value: value) }
     override func accessibilityMinValue() -> Any? { NSNumber(value: 0) }
     override func accessibilityMaxValue() -> Any? { NSNumber(value: 100) }
-    override func accessibilityValueDescription() -> String? { "\(Int(value.rounded())) percent" }
+    override func accessibilityValueDescription() -> String? {
+        String(localized: "\(Int(value.rounded())) percent")
+    }
 
     override func setAccessibilityValue(_ accessibilityValue: Any?) {
         guard let number = accessibilityValue as? NSNumber else { return }

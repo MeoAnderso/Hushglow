@@ -44,6 +44,11 @@ ditto .build/release/Sparkle.framework "$framework"
 rm -rf "$framework/Versions/B/XPCServices" "$framework/XPCServices"
 install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/DisplayKeys"
 
+# The text in other languages, from the string catalog: one folder per language it has been
+# translated into. English is the code's own, and its folder says that the app has it.
+xcrun xcstringstool compile Resources/Localizable.xcstrings --output-directory "$app/Contents/Resources"
+mkdir -p "$app/Contents/Resources/en.lproj"
+
 # The layered icon, which macOS renders with Liquid Glass, is compiled into an asset catalog.
 min_os=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" Resources/Info.plist)
 xcrun actool Resources/AppIcon.icon --compile "$app/Contents/Resources" --app-icon AppIcon \

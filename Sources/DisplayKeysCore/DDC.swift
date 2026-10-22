@@ -56,11 +56,11 @@ public enum DDC {
 
         public var title: String {
             switch self {
-            case .displayPort1: "DisplayPort 1"
-            case .displayPort2: "DisplayPort 2"
-            case .hdmi1: "HDMI 1"
-            case .hdmi2: "HDMI 2"
-            case .usbC: "USB-C"
+            case .displayPort1: String(localized: "DisplayPort 1", comment: "A display's input")
+            case .displayPort2: String(localized: "DisplayPort 2", comment: "A display's input")
+            case .hdmi1: String(localized: "HDMI 1", comment: "A display's input")
+            case .hdmi2: String(localized: "HDMI 2", comment: "A display's input")
+            case .usbC: String(localized: "USB-C", comment: "A display's input")
             }
         }
 

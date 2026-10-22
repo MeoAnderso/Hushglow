@@ -224,14 +224,14 @@ final class PermissionHelper: NSObject {
             target: self, action: #selector(dismiss))
         close.isBordered = false
         close.contentTintColor = .tertiaryLabelColor
-        close.setAccessibilityLabel("Close")
+        close.setAccessibilityLabel(String(localized: "Close"))
         Layout.size(close, NSSize(width: 20, height: 20))
 
         let other = NSButton(title: "", target: self, action: #selector(showOtherWays))
         other.bezelStyle = .helpButton
         other.controlSize = .small
-        other.setAccessibilityLabel("Other ways to add \(AppInfo.name)")
-        other.toolTip = "Other ways to add \(AppInfo.name)"
+        other.setAccessibilityLabel(String(localized: "Other ways to add \(AppInfo.name)"))
+        other.toolTip = String(localized: "Other ways to add \(AppInfo.name)")
 
         func text(_ string: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {
             let label = NSTextField(labelWithString: string)
@@ -244,8 +244,12 @@ final class PermissionHelper: NSObject {
         }
         let lines = Layout.column(
             [
-                text("Drag \(AppInfo.name) into the list above", size: 13, weight: .semibold, color: .labelColor),
-                text("If it is already listed, switch it on.", size: 11, weight: .regular, color: .secondaryLabelColor),
+                text(
+                    String(localized: "Drag \(AppInfo.name) into the list above"), size: 13, weight: .semibold,
+                    color: .labelColor),
+                text(
+                    String(localized: "If it is already listed, switch it on."), size: 11, weight: .regular,
+                    color: .secondaryLabelColor),
             ], spacing: 2)
         let row = Layout.row([lines, other, close], spacing: 8)
         row.setHuggingPriority(.defaultLow, for: .horizontal)
@@ -260,9 +264,10 @@ final class PermissionHelper: NSObject {
 
     @objc private func showOtherWays(_ sender: NSButton) {
         let menu = NSMenu()
-        let item = NSMenuItem(title: "Add Without Dragging", action: #selector(addWithoutDragging), keyEquivalent: "")
+        let item = NSMenuItem(
+            title: String(localized: "Add Without Dragging"), action: #selector(addWithoutDragging), keyEquivalent: "")
         item.target = self
-        item.toolTip = "macOS asks once and adds \(AppInfo.name) to the list, switched off."
+        item.toolTip = String(localized: "macOS asks once and adds \(AppInfo.name) to the list, switched off.")
         menu.addItem(item)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
     }

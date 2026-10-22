@@ -16,8 +16,13 @@ import notify
 @MainActor
 final class AccessibilityAccess: NSObject {
     /// What System Settings calls the list under Privacy & Security; macOS 27 renamed it.
+    /// A translation must use the name System Settings shows in that language.
     nonisolated static var listName: String {
-        if #available(macOS 27, *) { "Device Control and Data Access" } else { "Accessibility" }
+        if #available(macOS 27, *) {
+            String(localized: "Device Control and Data Access", comment: "The list's name in System Settings, macOS 27")
+        } else {
+            String(localized: "Accessibility", comment: "The list's name in System Settings, macOS 26")
+        }
     }
 
     /// Posted by macOS right after it has stored a change to any app's permissions.

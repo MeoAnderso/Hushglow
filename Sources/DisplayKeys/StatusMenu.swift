@@ -134,7 +134,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     /// The sun over the horizon; for a muted display, with a crossed-out speaker cut into its
     /// lower right corner. A template, so that the menu bar gives it its colour.
     static func icon(muted: Bool) -> NSImage {
-        let description = muted ? "\(AppInfo.name), display muted" : AppInfo.name
+        let description = muted ? String(localized: "\(AppInfo.name), display muted") : AppInfo.name
         guard let sun = NSImage(systemSymbolName: "sun.horizon.fill", accessibilityDescription: description) else {
             return NSImage(systemSymbolName: "sun.max", accessibilityDescription: description) ?? NSImage()
         }
@@ -163,12 +163,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private lazy var fixedItems: [NSMenuItem] = Self.fixedItems(target: self, updates: host.updatesAreAvailable)
 
     static func fixedItems(target: AnyObject?, updates: Bool) -> [NSMenuItem] {
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(
+            title: String(localized: "Settings…"), action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = target
-        let updatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        let updatesItem = NSMenuItem(
+            title: String(localized: "Check for Updates…"), action: #selector(checkForUpdates), keyEquivalent: "")
         updatesItem.target = target
         let quitItem = NSMenuItem(
-            title: "Quit \(AppInfo.name)", action: #selector(NSApplication.terminate), keyEquivalent: "q")
+            title: String(localized: "Quit \(AppInfo.name)"), action: #selector(NSApplication.terminate),
+            keyEquivalent: "q")
         return [.separator(), settingsItem] + (updates ? [updatesItem] : []) + [quitItem]
     }
 
@@ -198,7 +201,8 @@ final class MenuControls: NSObject {
     let versionLine = NSMenuItem(title: "\(AppInfo.name) \(AppInfo.version)", action: nil, keyEquivalent: "")
     private let hintItem = NSMenuItem()
     private let separator = NSMenuItem.separator()
-    private let accessItem = NSMenuItem(title: "Turn On \(KeyboardKeys.name)…", action: nil, keyEquivalent: "")
+    private let accessItem = NSMenuItem(
+        title: String(localized: "Turn On \(KeyboardKeys.name)…"), action: nil, keyEquivalent: "")
 
     private unowned let host: any StatusMenuHost
 
@@ -210,7 +214,8 @@ final class MenuControls: NSObject {
         versionLine.isEnabled = false
         accessItem.target = self
         accessItem.action = #selector(enableKeyboardKeys)
-        accessItem.subtitle = "Needs \(AccessibilityAccess.listName)"
+        accessItem.subtitle = String(
+            localized: "Needs \(AccessibilityAccess.listName)", comment: "The list in System Settings the keys need")
         groups = [makeGroup()]
     }
 
@@ -238,13 +243,14 @@ final class MenuControls: NSObject {
         }
 
         if !host.displayControlIsAvailable {
-            statusLine.title = "Display control is unavailable on this macOS"
+            statusLine.title = String(localized: "Display control is unavailable on this macOS")
         } else if displays.isEmpty {
-            statusLine.title = "No controllable display found"
+            statusLine.title = String(localized: "No controllable display found")
         } else {
             // The displays under control, which need not be the first screens: another can be a
             // television or a projector that does not answer DDC.
-            statusLine.title = "Controlling \(ListFormatter.localizedString(byJoining: displays.map(\.name)))"
+            let names = ListFormatter.joinedInAppLanguage(displays.map(\.name))
+            statusLine.title = String(localized: "Controlling \(names)", comment: "The names of the displays")
         }
 
         accessItem.isHidden = host.keyboardKeysAreActive
@@ -272,9 +278,11 @@ final class MenuControls: NSObject {
             return symbols.isEmpty ? nil : symbols.joined(separator: " ")
         }
         let parts = [
-            keys([.brightnessDown, .brightnessUp]).map { "Brightness \($0)" },
-            keys([.volumeDown, .volumeUp]).map { "Volume \($0)" },
-            keys([.mute]).map { "Mute \($0)" },
+            keys([.brightnessDown, .brightnessUp]).map {
+                String(localized: "Brightness \($0)", comment: "Its shortcuts")
+            },
+            keys([.volumeDown, .volumeUp]).map { String(localized: "Volume \($0)", comment: "Its shortcuts") },
+            keys([.mute]).map { String(localized: "Mute \($0)", comment: "Its shortcut") },
         ].compactMap { $0 }
         return NSAttributedString(
             string: parts.joined(separator: "    "),
@@ -290,12 +298,15 @@ final class MenuControls: NSObject {
 /// brightness, its volume and its contrast, and its inputs. Each changes that display alone.
 @MainActor
 final class DisplayRows: NSObject {
-    let brightnessRow = SliderRow(name: "Brightness", symbol: "sun.max.fill", hasButton: false)
-    let volumeRow = SliderRow(name: "Volume", symbol: "speaker.wave.2.fill", hasButton: true)
-    let contrastRow = SliderRow(name: "Contrast", symbol: "circle.lefthalf.filled", hasButton: false)
+    let brightnessRow = SliderRow(name: String(localized: "Brightness"), symbol: "sun.max.fill", hasButton: false)
+    let volumeRow = SliderRow(name: String(localized: "Volume"), symbol: "speaker.wave.2.fill", hasButton: true)
+    let contrastRow = SliderRow(
+        name: String(localized: "Contrast"), symbol: "circle.lefthalf.filled", hasButton: false)
     let header = NSMenuItem.sectionHeader(title: "")
     /// The display's inputs, the one it shows ticked.
-    let inputItem = NSMenuItem(title: "Input", action: nil, keyEquivalent: "")
+    let inputItem = NSMenuItem(
+        title: String(localized: "Input", comment: "The input a display shows, such as HDMI 1"), action: nil,
+        keyEquivalent: "")
     private let brightnessItem = NSMenuItem()
     private let volumeItem = NSMenuItem()
     private let contrastItem = NSMenuItem()
@@ -317,7 +328,7 @@ final class DisplayRows: NSObject {
         volumeItem.view = volumeRow
         contrastRow.onChange = { [unowned self] in set(.contrast, to: $0) }
         contrastItem.view = contrastRow
-        inputItem.submenu = NSMenu(title: "Input")
+        inputItem.submenu = NSMenu(title: Command.Control.input.title)
         for input in DDC.Input.allCases {
             let item = NSMenuItem(title: input.title, action: #selector(chooseInput), keyEquivalent: "")
             item.target = self
@@ -340,10 +351,15 @@ final class DisplayRows: NSObject {
         header.title = shown?.name ?? ""
         header.isHidden = !named || shown == nil
         // VoiceOver says which display a slider is for when there are several.
-        let prefix = named ? "\(shown?.name ?? "") " : ""
-        brightnessRow.slider.name = prefix + (named ? "brightness" : "Brightness")
-        volumeRow.slider.name = prefix + (named ? "volume" : "Volume")
-        contrastRow.slider.name = prefix + (named ? "contrast" : "Contrast")
+        let name = shown?.name ?? ""
+        brightnessRow.slider.name =
+            named
+            ? String(localized: "\(name) brightness", comment: "A display's slider") : Command.Control.brightness.title
+        volumeRow.slider.name =
+            named ? String(localized: "\(name) volume", comment: "A display's slider") : Command.Control.volume.title
+        contrastRow.slider.name =
+            named
+            ? String(localized: "\(name) contrast", comment: "A display's slider") : Command.Control.contrast.title
         brightnessItem.isHidden = state?.brightness == nil
         volumeItem.isHidden = state?.volume == nil
         contrastItem.isHidden = state?.contrast == nil
@@ -352,7 +368,9 @@ final class DisplayRows: NSObject {
         if let contrast = state?.contrast { contrastRow.show(percent: contrast.fraction * 100) }
         let current = state?.input.flatMap(DDC.Input.init(reported:))
         for item in inputItem.submenu?.items ?? [] { item.state = item.tag == current?.rawValue ? .on : .off }
-        inputItem.title = current.map { "Input: \($0.title)" } ?? "Input"
+        inputItem.title =
+            current.map { String(localized: "Input: \($0.title)", comment: "The input a display shows") }
+            ?? Command.Control.input.title
         if let volume = state?.volume {
             showsMuted = state?.isMuted == true
             volumeRow.show(percent: volume.fraction * 100)
@@ -363,7 +381,7 @@ final class DisplayRows: NSObject {
     private func updateMuteButton() {
         let symbol = showsMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"
         volumeRow.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        volumeRow.button?.setAccessibilityLabel(showsMuted ? "Unmute" : "Mute")
+        volumeRow.button?.setAccessibilityLabel(showsMuted ? String(localized: "Unmute") : String(localized: "Mute"))
         // The slider stays usable while muted: moving it unmutes, as macOS's own does.
         volumeRow.slider.isDimmed = showsMuted
     }
@@ -458,7 +476,7 @@ final class SliderRow: NSView {
         let whole = Int(percent.rounded())
         guard whole != shownPercent else { return }
         shownPercent = whole
-        valueLabel.stringValue = "\(whole)%"
+        valueLabel.stringValue = String(localized: "\(whole)%", comment: "A level in percent")
     }
 }
 

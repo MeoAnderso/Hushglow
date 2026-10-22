@@ -164,5 +164,7 @@ final class AppIconDragView: NSView, NSDraggingSource {
 
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .image }
-    override func accessibilityLabel() -> String? { "\(AppInfo.name), to drag into the list in System Settings" }
+    override func accessibilityLabel() -> String? {
+        String(localized: "\(AppInfo.name), to drag into the list in System Settings")
+    }
 }

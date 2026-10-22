@@ -13,10 +13,16 @@ public enum Indication: Equatable, Sendable {
     public var message: String? {
         switch self {
         case .level: nil
-        case .refused(let control): "\(control.title) is locked"
-        case .unsupported(let control): "No \(control.rawValue) control"
-        case .noDisplay: "No display to control"
-        case .watchingKeys: "Watching special keys"
+        case .refused(.brightness): String(localized: "Brightness is locked")
+        case .refused(.volume): String(localized: "Volume is locked")
+        case .refused(.contrast): String(localized: "Contrast is locked")
+        case .refused(.input): String(localized: "Input is locked")
+        case .unsupported(.brightness): String(localized: "No brightness control")
+        case .unsupported(.volume): String(localized: "No volume control")
+        case .unsupported(.contrast): String(localized: "No contrast control")
+        case .unsupported(.input): String(localized: "No input control")
+        case .noDisplay: String(localized: "No display to control")
+        case .watchingKeys: String(localized: "Watching special keys")
         }
     }
 
@@ -25,12 +31,12 @@ public enum Indication: Equatable, Sendable {
         guard case .level(let feedback) = self else { return message ?? "" }
         return switch feedback.kind {
         case .brightness where feedback.dimming > 0:
-            "Brightness \(feedback.percent) percent, dimmed \(Int((Double(feedback.dimming) * Level.dimPerStep * 100).rounded())) percent"
-        case .brightness: "Brightness \(feedback.percent) percent"
-        case .volume: "Volume \(feedback.percent) percent"
-        case .muted: "Muted"
-        case .contrast: "Contrast \(feedback.percent) percent"
-        case .input: "Input changed"
+            String(localized: "Brightness \(feedback.percent) percent, dimmed \(feedback.dimmedPercent) percent")
+        case .brightness: String(localized: "Brightness \(feedback.percent) percent")
+        case .volume: String(localized: "Volume \(feedback.percent) percent")
+        case .muted: String(localized: "Muted")
+        case .contrast: String(localized: "Contrast \(feedback.percent) percent")
+        case .input: String(localized: "Input changed")
         }
     }
 }
@@ -78,6 +84,11 @@ public struct Feedback: Equatable, Sendable {
     /// The level as a whole percentage.
     public var percent: Int {
         Int((min(max(fraction, 0), 1) * 100).rounded())
+    }
+
+    /// How far the screen is dimmed below the display's lowest brightness, as a whole percentage.
+    public var dimmedPercent: Int {
+        Int((Double(dimming) * Level.dimPerStep * 100).rounded())
     }
 }
 

@@ -1,0 +1,467 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ Settings" : {
+      "comment" : "The window's title"
+    },
+    "%@ already uses those keys." : {
+      "comment" : "An action, such as Volume up"
+    },
+    "%@ brightness" : {
+      "comment" : "A display's slider"
+    },
+    "%@ contrast" : {
+      "comment" : "A display's slider"
+    },
+    "%@ is running" : {
+
+    },
+    "%@ shortcut" : {
+      "comment" : "An action, such as Volume up"
+    },
+    "%@ use Ctrl+Alt with the arrow keys, so these are on the function keys." : {
+
+    },
+    "%@ uses Ctrl+Alt with the arrow keys, so these are on the function keys." : {
+
+    },
+    "%@ volume" : {
+      "comment" : "A display's slider"
+    },
+    "%@ was updated" : {
+
+    },
+    "%@, display muted" : {
+
+    },
+    "%@, to drag into the list in System Settings" : {
+
+    },
+    "%@…" : {
+      "comment" : "Keys held so far"
+    },
+    "%lld percent" : {
+
+    },
+    "%lld%%" : {
+      "comment" : "A level in percent"
+    },
+    "Accessibility" : {
+      "comment" : "The list's name in System Settings, macOS 26"
+    },
+    "Add Ctrl, Alt, Shift or Cmd. On its own, that key would stop working in every app." : {
+
+    },
+    "Add Without Dragging" : {
+
+    },
+    "Alt" : {
+      "comment" : "The Option key, which keyboards also mark Alt"
+    },
+    "Ask again after updates" : {
+
+    },
+    "Brightness" : {
+
+    },
+    "Brightness %@" : {
+      "comment" : "Its shortcuts"
+    },
+    "Brightness %lld percent" : {
+
+    },
+    "Brightness %lld percent, dimmed %lld percent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Brightness %1$lld percent, dimmed %2$lld percent"
+          }
+        }
+      }
+    },
+    "Brightness and Volume Keys" : {
+      "comment" : "The keyboard's own brightness, volume and mute keys"
+    },
+    "Brightness down" : {
+      "comment" : "An action a shortcut can have"
+    },
+    "Brightness is locked" : {
+
+    },
+    "Brightness up" : {
+      "comment" : "An action a shortcut can have"
+    },
+    "Cancel" : {
+
+    },
+    "Check for Updates…" : {
+
+    },
+    "Check for updates automatically" : {
+
+    },
+    "Close" : {
+
+    },
+    "Cmd" : {
+      "comment" : "The Command key, abbreviated as on a keyboard"
+    },
+    "Command" : {
+      "comment" : "The Command key, as VoiceOver says it"
+    },
+    "Contrast" : {
+
+    },
+    "Contrast %lld percent" : {
+
+    },
+    "Contrast is locked" : {
+
+    },
+    "Control" : {
+      "comment" : "The Control key, as VoiceOver says it"
+    },
+    "Controlling %@" : {
+      "comment" : "The names of the displays"
+    },
+    "Ctrl" : {
+      "comment" : "The Control key, abbreviated as on a keyboard"
+    },
+    "Device Control and Data Access" : {
+      "comment" : "The list's name in System Settings, macOS 27"
+    },
+    "Dim the screen below the display’s lowest brightness" : {
+
+    },
+    "Display" : {
+      "comment" : "A display with no name"
+    },
+    "Display control is unavailable on this macOS" : {
+
+    },
+    "DisplayPort 1" : {
+      "comment" : "A display's input"
+    },
+    "DisplayPort 2" : {
+      "comment" : "A display's input"
+    },
+    "Down Arrow" : {
+
+    },
+    "Drag %@ into the list above" : {
+
+    },
+    "End" : {
+      "comment" : "The End key"
+    },
+    "Every display" : {
+      "comment" : "Which display the keys change"
+    },
+    "General" : {
+      "comment" : "Settings that fit no other group"
+    },
+    "Glass" : {
+      "comment" : "A style of the indicator"
+    },
+    "HDMI 1" : {
+      "comment" : "A display's input"
+    },
+    "HDMI 2" : {
+      "comment" : "A display's input"
+    },
+    "Home" : {
+      "comment" : "The Home key"
+    },
+    "If it is already listed, switch it on." : {
+
+    },
+    "Indicator" : {
+      "comment" : "The on-screen indicator"
+    },
+    "Input" : {
+      "comment" : "The input a display shows, such as HDMI 1"
+    },
+    "Input changed" : {
+
+    },
+    "Input is locked" : {
+
+    },
+    "Input: %@" : {
+      "comment" : "The input a display shows"
+    },
+    "Keys change" : {
+      "comment" : "Which display the keys change"
+    },
+    "Launch at login" : {
+
+    },
+    "Launch at login (move the app to Applications first)" : {
+
+    },
+    "Launch at login could not be changed" : {
+
+    },
+    "Left Arrow" : {
+
+    },
+    "Look for the sun in the menu bar." : {
+
+    },
+    "Look for the sun in the menu bar. These shortcuts control your display; try one:" : {
+
+    },
+    "Modifier for quarter steps" : {
+
+    },
+    "Mute" : {
+      "comment" : "An action a shortcut can have"
+    },
+    "Mute %@" : {
+      "comment" : "Its shortcut"
+    },
+    "Muted" : {
+
+    },
+    "Needs %@" : {
+      "comment" : "The list in System Settings the keys need"
+    },
+    "No brightness control" : {
+
+    },
+    "No contrast control" : {
+
+    },
+    "No controllable display found" : {
+
+    },
+    "No display to control" : {
+
+    },
+    "No input control" : {
+
+    },
+    "No volume control" : {
+
+    },
+    "None" : {
+      "comment" : "No shortcut"
+    },
+    "Not Now" : {
+
+    },
+    "OK" : {
+
+    },
+    "Off. Turning them on adds %@ to %@ in System Settings, which it uses only to receive those keys. The shortcuts above work without it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Off. Turning them on adds %1$@ to %2$@ in System Settings, which it uses only to receive those keys. The shortcuts above work without it."
+          }
+        }
+      }
+    },
+    "On an Apple keyboard, hold fn with them." : {
+
+    },
+    "On. The %@ on the keyboard control the display." : {
+
+    },
+    "Option" : {
+      "comment" : "The Option key, as VoiceOver says it"
+    },
+    "Other ways to add %@" : {
+
+    },
+    "Page Down" : {
+
+    },
+    "Page Up" : {
+
+    },
+    "Plain tint" : {
+      "comment" : "A style of the indicator"
+    },
+    "Position" : {
+      "comment" : "Where the indicator appears"
+    },
+    "Press Space, then the keys for the shortcut. Delete removes it." : {
+
+    },
+    "Press keys…" : {
+
+    },
+    "Put back %@" : {
+      "comment" : "A shortcut"
+    },
+    "Put back the default shortcut, %@" : {
+
+    },
+    "Quarter steps with" : {
+      "comment" : "Followed by a modifier, then: added to a shortcut"
+    },
+    "Quit %@" : {
+
+    },
+    "Recording" : {
+      "comment" : "A shortcut field waiting for keys"
+    },
+    "Remove" : {
+      "comment" : "Removes a shortcut"
+    },
+    "Remove the %@ shortcut" : {
+
+    },
+    "Restore Defaults" : {
+
+    },
+    "Restore the default settings?" : {
+
+    },
+    "Right Arrow" : {
+
+    },
+    "See-through glass" : {
+      "comment" : "A style of the indicator"
+    },
+    "Settings…" : {
+
+    },
+    "Shift" : {
+      "comment" : "The Shift key"
+    },
+    "Shortcuts" : {
+
+    },
+    "Show the level as a percentage" : {
+
+    },
+    "Style" : {
+      "comment" : "The indicator's style"
+    },
+    "That key can’t be used. Choose an arrow, page, Home, End or function key." : {
+
+    },
+    "The %@ on your keyboard are off until %@ is added to %@ again in System Settings. macOS grants that to one build at a time." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "The %1$@ on your keyboard are off until %2$@ is added to %3$@ again in System Settings. macOS grants that to one build at a time."
+          }
+        }
+      }
+    },
+    "The %@ on your keyboard control the display too." : {
+
+    },
+    "The %@ on your keyboard control the display, as before." : {
+
+    },
+    "The %@ on your keyboard work too once %@ is switched on under %@ in System Settings. It uses that only for those keys." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "The %1$@ on your keyboard work too once %2$@ is switched on under %3$@ in System Settings. It uses that only for those keys."
+          }
+        }
+      }
+    },
+    "The one under the pointer" : {
+      "comment" : "Which display the keys change"
+    },
+    "The shortcuts, the indicator and which display the keys change go back to their defaults. The %@ and launch at login stay as they are." : {
+
+    },
+    "Top-right corner" : {
+      "comment" : "Where the indicator appears"
+    },
+    "Turn On %@…" : {
+
+    },
+    "Turn On…" : {
+      "comment" : "Turns the keyboard's own keys on"
+    },
+    "USB-C" : {
+      "comment" : "A display's input"
+    },
+    "Under the menu bar icon" : {
+      "comment" : "Where the indicator appears"
+    },
+    "Unmute" : {
+
+    },
+    "Up Arrow" : {
+
+    },
+    "Volume" : {
+
+    },
+    "Volume %@" : {
+      "comment" : "Its shortcuts"
+    },
+    "Volume %lld percent" : {
+
+    },
+    "Volume down" : {
+      "comment" : "An action a shortcut can have"
+    },
+    "Volume is locked" : {
+
+    },
+    "Volume up" : {
+      "comment" : "An action a shortcut can have"
+    },
+    "Watching special keys" : {
+
+    },
+    "With %@ added, %@ and %@ would both take %@. Choose another modifier, or change one of those shortcuts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "With %1$@ added, %2$@ and %3$@ would both take %4$@. Choose another modifier, or change one of those shortcuts."
+          }
+        }
+      }
+    },
+    "With several displays, keys change" : {
+
+    },
+    "You can also change them, if you want. Choose Settings… from the sun’s menu." : {
+
+    },
+    "added to a shortcut" : {
+      "comment" : "Ends: Quarter steps with"
+    },
+    "brightness and volume keys" : {
+      "comment" : "The keyboard's own keys, within a sentence"
+    },
+    "macOS asks once and adds %@ to the list, switched off." : {
+
+    },
+    "macOS did not accept %@; another app may be using it." : {
+
+    },
+    "macOS uses %@ for shortcuts of its own, so it may not work here." : {
+
+    },
+    "macOS uses %@ for shortcuts of its own, so they may not work here." : {
+
+    },
+    "macOS uses %@ itself. Choose other keys, or switch its shortcut off in System Settings › Keyboard." : {
+
+    },
+    "that" : {
+      "comment" : "A modifier, when it has no name"
+    },
+    "those keys" : {
+
+    }
+  },
+  "version" : "1.0"
+}

@@ -132,6 +132,29 @@ import Testing
         #expect(info["LSApplicationCategoryType"] as? String == "public.app-category.utilities")
     }
 
+    /// The catalog that translations go into has English as its source, and holds nothing the
+    /// code no longer uses. That it holds everything the code uses needs the compiler to find
+    /// out, which `Scripts/strings.sh` does in continuous integration.
+    @Test func theStringCatalogIsCurrent() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/Localizable.xcstrings")
+        let catalog = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(catalog["sourceLanguage"] as? String == "en")
+        let strings = try #require(catalog["strings"] as? [String: [String: Any]])
+        #expect(strings.values.allSatisfy { $0["extractionState"] as? String != "stale" })
+        // A few that the indicator, VoiceOver and the menu look up, with their placeholders.
+        for key in ["No display to control", "Volume %lld percent", "Controlling %@", "Check for Updates…"] {
+            #expect(strings[key] != nil, "\(key)")
+        }
+    }
+
+    /// Names in a list are joined in the language of the app's text, English until it has another.
+    @Test func listsAreJoinedInTheAppsLanguage() {
+        #expect(ListFormatter.joinedInAppLanguage(["Rectangle", "Magnet"]) == "Rectangle and Magnet")
+        #expect(ListFormatter.joinedInAppLanguage(["LG"]) == "LG")
+    }
+
     /// Until the identifier changes there is nothing to carry over, and nothing is touched.
     @Test func settingsAreCarriedOverOnlyUnderANewIdentifier() {
         #expect(AppInfo.bundleID == SettingsCarryOver.earlierBundleID)

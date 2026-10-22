@@ -168,15 +168,19 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             return label
         }
 
-        let stylePopup = popup("Style", IndicatorSettings.Style.allCases.map(\.title), #selector(indicatorChanged))
+        let style = String(localized: "Style", comment: "The indicator's style")
+        let position = String(localized: "Position", comment: "Where the indicator appears")
+        let stylePopup = popup(style, IndicatorSettings.Style.allCases.map(\.title), #selector(indicatorChanged))
         let positionPopup = popup(
-            "Position", IndicatorSettings.Position.allCases.map(\.title), #selector(indicatorChanged))
-        let percentageBox = checkbox("Show the level as a percentage", #selector(indicatorChanged))
+            position, IndicatorSettings.Position.allCases.map(\.title), #selector(indicatorChanged))
+        let percentageBox = checkbox(
+            String(localized: "Show the level as a percentage"), #selector(indicatorChanged))
         self.stylePopup = stylePopup
         self.positionPopup = positionPopup
         self.percentageBox = percentageBox
         let indicator = section(
-            "Indicator", [form([("Style", [stylePopup]), ("Position", [positionPopup])], spacing: 8), percentageBox])
+            String(localized: "Indicator", comment: "The on-screen indicator"),
+            [form([(style, [stylePopup]), (position, [positionPopup])], spacing: 8), percentageBox])
 
         var shortcutRows: [(String, [NSView])] = []
         for action in Shortcut.Action.allCases {
@@ -197,45 +201,62 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             controls[action] = control
             shortcutRows.append((action.title, [control]))
         }
-        let quarterStepsBox = checkbox("Quarter steps with", #selector(quarterStepsChanged))
+        let quarterStepsBox = checkbox(
+            String(localized: "Quarter steps with", comment: "Followed by a modifier, then: added to a shortcut"),
+            #selector(quarterStepsChanged))
         self.quarterStepsBox = quarterStepsBox
         let quarterStepPopup = NSPopUpButton(frame: .zero, pullsDown: false)
         quarterStepPopup.addItems(
             withTitles: Shortcut.Modifiers.quarterStepChoices.map { "\($0.symbols) \($0.title ?? "")" })
         quarterStepPopup.target = self
         quarterStepPopup.action = #selector(quarterStepsChanged)
-        quarterStepPopup.setAccessibilityLabel("Modifier for quarter steps")
+        quarterStepPopup.setAccessibilityLabel(String(localized: "Modifier for quarter steps"))
         self.quarterStepPopup = quarterStepPopup
         let quarterStepRow = Layout.row(
-            [quarterStepsBox, quarterStepPopup, NSTextField(labelWithString: "added to a shortcut")], spacing: 6)
+            [
+                quarterStepsBox, quarterStepPopup,
+                NSTextField(
+                    labelWithString: String(localized: "added to a shortcut", comment: "Ends: Quarter steps with")),
+            ], spacing: 6)
         // Takes room only while it has something to say.
         let message = note()
         message.isHidden = true
         self.message = message
-        let shortcuts = section("Shortcuts", [form(shortcutRows, spacing: 6), quarterStepRow, message])
+        let shortcuts = section(
+            String(localized: "Shortcuts"), [form(shortcutRows, spacing: 6), quarterStepRow, message])
 
         let keysStatus = note()
         self.keysStatus = keysStatus
-        let keysButton = NSButton(title: "Turn On…", target: self, action: #selector(turnOnKeys))
+        let keysButton = NSButton(
+            title: String(localized: "Turn On…", comment: "Turns the keyboard's own keys on"), target: self,
+            action: #selector(turnOnKeys))
         self.keysButton = keysButton
         let askBox = checkbox(KeyboardKeys.askAgain, #selector(askChanged))
         self.askBox = askBox
         let keys = section(KeyboardKeys.phrase.capitalizedFirst, [keysStatus, keysButton, askBox])
 
-        let loginBox = checkbox("Launch at login", #selector(loginChanged))
+        let loginBox = checkbox(String(localized: "Launch at login"), #selector(loginChanged))
         self.loginBox = loginBox
         let keysChangePopup = popup(
-            "With several displays, keys change", ControlSettings.Target.allCases.map(\.title),
+            String(localized: "With several displays, keys change"), ControlSettings.Target.allCases.map(\.title),
             #selector(keysChangeChanged))
         self.keysChangePopup = keysChangePopup
-        let dimmingBox = checkbox("Dim the screen below the display’s lowest brightness", #selector(dimmingChanged))
+        let dimmingBox = checkbox(
+            String(localized: "Dim the screen below the display’s lowest brightness"), #selector(dimmingChanged))
         self.dimmingBox = dimmingBox
-        let updatesBox = checkbox("Check for updates automatically", #selector(updatesChanged))
+        let updatesBox = checkbox(String(localized: "Check for updates automatically"), #selector(updatesChanged))
         self.updatesBox = updatesBox
         let general = section(
-            "General", [form([("Keys change", [keysChangePopup])], spacing: 8), dimmingBox, loginBox, updatesBox])
+            String(localized: "General", comment: "Settings that fit no other group"),
+            [
+                form(
+                    [(String(localized: "Keys change", comment: "Which display the keys change"), [keysChangePopup])],
+                    spacing: 8),
+                dimmingBox, loginBox, updatesBox,
+            ])
 
-        let restore = NSButton(title: "Restore Defaults", target: self, action: #selector(askToRestoreDefaults))
+        let restore = NSButton(
+            title: String(localized: "Restore Defaults"), target: self, action: #selector(askToRestoreDefaults))
         let restoreRow = NSStackView()
         restoreRow.setViews([restore], in: .trailing)
         restoreRow.widthAnchor.constraint(equalToConstant: wellWidth).isActive = true
@@ -252,7 +273,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     /// The window, also used on its own to photograph it in tests.
     func makeWindow() -> NSWindow {
-        let window = GlassPanel.makeWindow(title: "\(AppInfo.name) Settings", content: makeContentView())
+        let window = GlassPanel.makeWindow(
+            title: String(localized: "\(AppInfo.name) Settings", comment: "The window's title"),
+            content: makeContentView())
         window.delegate = self
         self.window = window
         return window
@@ -279,9 +302,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let isActive = host.keyboardKeysAreActive
         keysStatus?.stringValue =
             isActive
-            ? "On. The \(KeyboardKeys.phrase) on the keyboard control the display."
-            : "Off. Turning them on adds \(AppInfo.name) to \(AccessibilityAccess.listName) in System Settings, "
-                + "which it uses only to receive those keys. The shortcuts above work without it."
+            ? String(localized: "On. The \(KeyboardKeys.phrase) on the keyboard control the display.")
+            : String(
+                localized: """
+                    Off. Turning them on adds \(AppInfo.name) to \(AccessibilityAccess.listName) in System Settings, \
+                    which it uses only to receive those keys. The shortcuts above work without it.
+                    """)
         keysButton?.isHidden = isActive
         askBox?.state = host.keyboardAskingIsDisabled ? .off : .on
         askBox?.isHidden = isActive
@@ -289,7 +315,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         // Login items point at the app's location, so only offer it once the app is installed.
         let isInstalled = Bundle.main.bundlePath.contains("/Applications/")
         loginBox?.isEnabled = isInstalled
-        loginBox?.title = isInstalled ? "Launch at login" : "Launch at login (move the app to Applications first)"
+        loginBox?.title =
+            isInstalled
+            ? String(localized: "Launch at login")
+            : String(localized: "Launch at login (move the app to Applications first)")
         loginBox?.state = SMAppService.mainApp.status == .enabled ? .on : .off
         let checksForUpdates = host.checksForUpdatesAutomatically
         updatesBox?.isHidden = checksForUpdates == nil
@@ -328,8 +357,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
         guard !clashing.isEmpty else { return nil }
         let names = clashing.map(\.symbols).joined(separator: ", ")
-        return "macOS uses \(names) for shortcuts of its own, so \(clashing.count == 1 ? "it" : "they") may not "
-            + "work here."
+        return clashing.count == 1
+            ? String(localized: "macOS uses \(names) for shortcuts of its own, so it may not work here.")
+            : String(localized: "macOS uses \(names) for shortcuts of its own, so they may not work here.")
     }
 
     // MARK: Shortcuts
@@ -341,17 +371,21 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             isUsedBySystem: host.shortcutsUsedByMacOS.contains)
         {
         case .usedBySystem:
-            return "macOS uses \(shortcut?.symbols ?? "those keys") itself. Choose other keys, or switch its "
-                + "shortcut off in System Settings › Keyboard."
+            let keys = shortcut?.symbols ?? String(localized: "those keys")
+            return String(
+                localized:
+                    "macOS uses \(keys) itself. Choose other keys, or switch its shortcut off in System Settings › Keyboard."
+            )
         case .unsupportedKey:
-            return "That key can’t be used. Choose an arrow, page, Home, End or function key."
+            return String(localized: "That key can’t be used. Choose an arrow, page, Home, End or function key.")
         case .needsModifier:
-            return "Add Ctrl, Alt, Shift or Cmd. On its own, that key would stop working in every app."
+            return String(
+                localized: "Add Ctrl, Alt, Shift or Cmd. On its own, that key would stop working in every app.")
         case .usedBy(let other):
-            return "\(other.title) already uses those keys."
+            return String(localized: "\(other.title) already uses those keys.", comment: "An action, such as Volume up")
         case nil:
             guard let shortcut, !host.canRegister(shortcut) else { return nil }
-            return "macOS did not accept \(shortcut.symbols); another app may be using it."
+            return String(localized: "macOS did not accept \(shortcut.symbols); another app may be using it.")
         }
     }
 
@@ -399,8 +433,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     static func quarterStepClash(
         _ clash: (action: Shortcut.Action, other: Shortcut.Action, keys: Shortcut), modifier: Shortcut.Modifiers
     ) -> String {
-        "With \(modifier.title ?? "that") added, \(clash.action.title) and \(clash.other.title) would both take "
-            + "\(clash.keys.symbols). Choose another modifier, or change one of those shortcuts."
+        let name = modifier.title ?? String(localized: "that", comment: "A modifier, when it has no name")
+        return String(
+            localized: """
+                With \(name) added, \(clash.action.title) and \(clash.other.title) would both take \
+                \(clash.keys.symbols). Choose another modifier, or change one of those shortcuts.
+                """)
     }
 
     // MARK: Other settings
@@ -449,7 +487,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         } catch {
             log.error("Launch at login could not be changed: \(error.localizedDescription, privacy: .public)")
             let alert = NSAlert()
-            alert.messageText = "Launch at login could not be changed"
+            alert.messageText = String(localized: "Launch at login could not be changed")
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
@@ -465,13 +503,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     private func askInASheet(_ answer: @escaping @MainActor (Bool) -> Void) {
         let alert = NSAlert()
-        alert.messageText = "Restore the default settings?"
-        alert.informativeText =
-            "The shortcuts, the indicator and which display the keys change go back to their defaults. The "
-            + "\(KeyboardKeys.phrase) "
-            + "and launch at login stay as they are."
-        alert.addButton(withTitle: "Restore Defaults")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = String(localized: "Restore the default settings?")
+        alert.informativeText = String(
+            localized: """
+                The shortcuts, the indicator and which display the keys change go back to their defaults. The \
+                \(KeyboardKeys.phrase) and launch at login stay as they are.
+                """)
+        alert.addButton(withTitle: String(localized: "Restore Defaults"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         guard let window else { return answer(alert.runModal() == .alertFirstButtonReturn) }
         alert.beginSheetModal(for: window) { answer($0 == .alertFirstButtonReturn) }
     }

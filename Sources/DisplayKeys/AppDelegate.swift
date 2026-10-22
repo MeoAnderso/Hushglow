@@ -36,7 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     var menuDisplays: [MenuDisplay] {
         displays?.sessions.map { session in
             MenuDisplay(
-                id: ObjectIdentifier(session.display), name: session.display.identity?.name ?? "Display",
+                id: ObjectIdentifier(session.display),
+                name: session.display.identity?.name ?? String(localized: "Display", comment: "A display with no name"),
                 state: session.state)
         } ?? []
     }

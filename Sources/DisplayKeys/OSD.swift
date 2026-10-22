@@ -520,7 +520,8 @@ final class OSDView: NSView {
         if showsPercentage {
             let right = bounds.width - Self.rightInset + 4
             show(
-                "\(isMuted ? 0 : feedback.percent)%", in: percentage, size: 12, digitsAlign: true,
+                String(localized: "\(isMuted ? 0 : feedback.percent)%", comment: "A level in percent"), in: percentage,
+                size: 12, digitsAlign: true,
                 from: right - Self.percentageWidth - 4, to: right, scale: scale)
         }
         layOutBar()
