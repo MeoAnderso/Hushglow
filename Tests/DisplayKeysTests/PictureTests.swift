@@ -539,6 +539,8 @@ private final class KeySession: NSObject, NSMenuDelegate {
     private(set) var highlighted: [String] = []
     private let menu = NSMenu()
     private var ticks = 0
+    /// The tick at which the menu opened, which comes later while the Mac is busy.
+    private var openedAt: Int?
 
     override init() {
         super.init()
@@ -551,8 +553,15 @@ private final class KeySession: NSObject, NSMenuDelegate {
     func run() {
         let timer = Timer(timeInterval: 0.01, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
-        menu.popUp(positioning: nil, at: NSPoint(x: 200, y: 400), in: nil)
+        // Away from the pointer, which highlights the item it rests on.
+        let screen = NSScreen.main?.visibleFrame ?? .zero
+        let x = NSEvent.mouseLocation.x < screen.midX ? screen.maxX - 300 : screen.minX + 200
+        menu.popUp(positioning: nil, at: NSPoint(x: x, y: screen.minY + 400), in: nil)
         timer.invalidate()
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        openedAt = ticks
     }
 
     /// What the app does with a key press on its way to the menu: Ctrl-Option-Up is its own.
@@ -579,11 +588,13 @@ private final class KeySession: NSObject, NSMenuDelegate {
 
     @objc private func tick() {
         ticks += 1
-        // The menu takes a moment to open. Then: Down, Ctrl-Option-Up, Down.
-        switch ticks {
-        case 60, 90: press(0x7D, NSDownArrowFunctionKey)
-        case 75: press(0x7E, NSUpArrowFunctionKey, [.control, .option])
-        case 120: menu.cancelTracking()
+        // Counted from the moment the menu opened, and a little after it, for it to be ready
+        // for keys: Down, Ctrl-Option-Up, Down.
+        guard let openedAt else { return }
+        switch ticks - openedAt {
+        case 30, 60: press(0x7D, NSDownArrowFunctionKey)
+        case 45: press(0x7E, NSUpArrowFunctionKey, [.control, .option])
+        case 90: menu.cancelTracking()
         default: break
         }
     }

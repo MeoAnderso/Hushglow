@@ -819,7 +819,7 @@ func descendants(of view: NSView) -> [NSView] {
 
     /// The shortcuts as this Mac has them set. The settings are only read.
     @Test func shortcutsAreTakenFromTheMenusKeysOnlyWhileItIsOpen() throws {
-        let keyboard = KeyboardInput()
+        let keyboard = KeyboardInput(makeRegistry: { FakeRegistry(press: $0) })
         var commands: [Command] = []
         keyboard.onCommand = { commands.append($0) }
         let stepping = Shortcut.Action.allCases.filter(\.repeatsWhileHeld)
@@ -861,7 +861,7 @@ func descendants(of view: NSView) -> [NSView] {
     /// Mute would flip back and forth for as long as its key was held.
     @Test func aHeldMuteShortcutIsTakenOnce() throws {
         guard let shortcut = ShortcutSettings.shortcut(for: .mute) else { return }
-        let keyboard = KeyboardInput()
+        let keyboard = KeyboardInput(makeRegistry: { FakeRegistry(press: $0) })
         var commands: [Command] = []
         keyboard.onCommand = { commands.append($0) }
         keyboard.menuIsOpen = true
@@ -888,6 +888,207 @@ func descendants(of view: NSView) -> [NSView] {
         let own = Hotkeys.repeatPace()
         #expect(own == Hotkeys.repeatPace(delay: NSEvent.keyRepeatDelay, interval: NSEvent.keyRepeatInterval))
         if let own { #expect(own.interval >= shortest && own.delay >= own.interval) }
+    }
+
+    /// A ticker that fires when the test says, in place of the timer.
+    @MainActor
+    private final class Ticker: RepeatTicker {
+        let pace: Hotkeys.RepeatPace
+        let fire: @MainActor () -> Void
+        var isStopped = false
+
+        init(pace: Hotkeys.RepeatPace, fire: @escaping @MainActor () -> Void) {
+            self.pace = pace
+            self.fire = fire
+        }
+
+        func stop() { isStopped = true }
+    }
+
+    private static let pace = Hotkeys.RepeatPace(delay: 0.5, interval: 0.1)
+
+    /// A repeat whose tickers the test keeps, with the pace given, or key repeat switched off.
+    private func repeating(pace: Hotkeys.RepeatPace? = pace) -> (ShortcutRepeat, () -> [Ticker]) {
+        var tickers: [Ticker] = []
+        let repeating = ShortcutRepeat(
+            pace: { pace },
+            ticker: { pace, fire in
+                let ticker = Ticker(pace: pace, fire: fire)
+                tickers.append(ticker)
+                return ticker
+            })
+        return (repeating, { tickers })
+    }
+
+    @Test func aHeldShortcutStepsUntilItIsLetGo() throws {
+        let (repeating, tickers) = repeating()
+        var steps = 0
+        repeating.pressed(7, repeats: true) { steps += 1 }
+        let ticker = try #require(tickers().last)
+        // At the keyboard's pace, and nothing until its delay is over.
+        #expect(ticker.pace == Self.pace)
+        #expect(steps == 0)
+        ticker.fire()
+        ticker.fire()
+        #expect(steps == 2)
+        // Another shortcut's release does not stop it.
+        repeating.released(8)
+        ticker.fire()
+        #expect(steps == 3)
+        repeating.released(7)
+        #expect(ticker.isStopped && repeating.held == nil)
+    }
+
+    /// Mute would flip back and forth, and key repeat may be switched off in System Settings.
+    @Test func someShortcutsDoNotRepeat() {
+        let (repeating, tickers) = repeating()
+        repeating.pressed(9, repeats: false) {}
+        #expect(tickers().isEmpty && repeating.held == nil)
+        let (switchedOff, switchedOffTickers) = self.repeating(pace: nil)
+        switchedOff.pressed(7, repeats: true) {}
+        #expect(switchedOffTickers().isEmpty && switchedOff.held == nil)
+    }
+
+    /// Pressing another shortcut while one is held stops the first one's repeat.
+    @Test func aNewPressTakesOver() throws {
+        let (repeating, tickers) = repeating()
+        var first = 0
+        var second = 0
+        repeating.pressed(1, repeats: true) { first += 1 }
+        repeating.pressed(2, repeats: true) { second += 1 }
+        #expect(tickers().count == 2 && tickers()[0].isStopped && !tickers()[1].isStopped)
+        try #require(tickers().last).fire()
+        #expect(first == 0 && second == 1 && repeating.held?.id == 2)
+        // The first one's release, which may come after, changes nothing.
+        repeating.released(1)
+        #expect(!tickers()[1].isStopped)
+    }
+
+    /// A release that never arrives does not step for ever: the range is crossed and no more.
+    @Test func aRepeatEndsWhenTheRangeIsCrossed() throws {
+        let (repeating, tickers) = repeating()
+        var steps = 0
+        repeating.pressed(7, repeats: true) { steps += 1 }
+        let ticker = try #require(tickers().last)
+        for _ in 0...ShortcutRepeat.maximumRepeats { ticker.fire() }
+        #expect(steps == ShortcutRepeat.maximumRepeats)
+        #expect(ticker.isStopped && repeating.held == nil)
+    }
+
+    /// The real ticker is a timer on the main run loop: it waits for the delay, then fires at
+    /// the interval until it is stopped.
+    @Test func theTimerFiresAtThePace() async {
+        var fired: [Date] = []
+        let start = Date()
+        let timer = ShortcutRepeat.timer(Hotkeys.RepeatPace(delay: 0.2, interval: 0.05)) { fired.append(Date()) }
+        for _ in 0..<100 where fired.count < 3 {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        timer.stop()
+        let count = fired.count
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(count >= 3)
+        #expect(fired.count == count)
+        if let first = fired.first { #expect(first.timeIntervalSince(start) >= 0.19) }
+    }
+}
+
+/// Stands in for the shortcuts registered with macOS, so that no test registers any. It keeps
+/// the handler a pressed shortcut calls, for the test to press one.
+@MainActor
+final class FakeRegistry: ShortcutRegistry {
+    var statuses: [AppStatus.ShortcutStatus] = []
+    var reloads = 0
+    var unregistrations = 0
+    var repeatStops = 0
+    let press: Hotkeys.Handler
+
+    init(press: @escaping Hotkeys.Handler) {
+        self.press = press
+    }
+
+    func reload() { reloads += 1 }
+    func unregisterAll() { unregistrations += 1 }
+    func stopRepeating() { repeatStops += 1 }
+}
+
+/// The glue in `KeyboardInput`, with a registry of the tests' own and no key tap: neither
+/// needs anything from macOS, and nothing is started.
+@MainActor
+@Suite struct KeyboardInputTests {
+    private final class Made {
+        var registry: FakeRegistry?
+    }
+
+    private func keyboard() -> (KeyboardInput, Made) {
+        let made = Made()
+        let keyboard = KeyboardInput(makeRegistry: { press in
+            let registry = FakeRegistry(press: press)
+            made.registry = registry
+            return registry
+        })
+        return (keyboard, made)
+    }
+
+    @Test func aPressedShortcutRunsItsCommand() throws {
+        let (keyboard, made) = keyboard()
+        var commands: [Command] = []
+        var pressed: [Shortcut.Action] = []
+        keyboard.onCommand = { commands.append($0) }
+        keyboard.onShortcut = { pressed.append($0) }
+        keyboard.stopRepeating()
+        let registry = try #require(made.registry)
+        #expect(registry.repeatStops == 1)
+
+        registry.press(.volumeUp, false)
+        registry.press(.brightnessDown, true)
+        #expect(commands == [.step(.volume, up: true, fine: false), .step(.brightness, up: false, fine: true)])
+        // An open notice hears of each, to light its key cap.
+        #expect(pressed == [.volumeUp, .brightnessDown])
+        #expect(keyboard.input.shortcutPresses == 2)
+        #expect(keyboard.input.last == "shortcut brightness-down")
+    }
+
+    /// Recording a shortcut and the open menu each release the shortcuts; they come back only
+    /// when neither holds them.
+    @Test func theShortcutsComeBackWhenNothingHoldsThemBack() throws {
+        let (keyboard, made) = keyboard()
+        keyboard.pauseShortcuts()
+        let registry = try #require(made.registry)
+        #expect(registry.unregistrations == 1)
+        keyboard.menuIsOpen = true
+        keyboard.menuIsOpen = true
+        #expect(registry.unregistrations == 2)
+
+        keyboard.resumeShortcuts()
+        keyboard.reloadShortcuts()
+        #expect(registry.reloads == 0)
+        keyboard.menuIsOpen = false
+        #expect(registry.reloads == 1)
+
+        // With nothing holding them back, settings that change take effect at once.
+        keyboard.reloadShortcuts()
+        #expect(registry.reloads == 2)
+    }
+
+    /// The key tap decides on its own thread; the main thread counts the key and runs its command.
+    @Test func aKeyTheTapDecidedAboutIsCountedAndRun() throws {
+        let (keyboard, _) = keyboard()
+        var commands: [Command] = []
+        keyboard.onCommand = { commands.append($0) }
+        let volumeUp = try #require(MediaKeyEvent(subtype: AuxiliaryKey.eventSubtype, data1: 0xA << 8))
+        keyboard.took(volumeUp, .run(.step(.volume, up: true, fine: false)))
+        keyboard.took(volumeUp, .swallow)
+        keyboard.took(volumeUp, .passThrough)
+        #expect(commands == [.step(.volume, up: true, fine: false)])
+        #expect(keyboard.input.keysHandled == 2 && keyboard.input.keysLeftToSystem == 1)
+        #expect(keyboard.input.last == "key volumeUp, left to macOS")
+    }
+
+    @Test func stoppingLetsTheShortcutsGo() throws {
+        let (keyboard, made) = keyboard()
+        keyboard.stop()
+        #expect(try #require(made.registry).unregistrations == 1)
     }
 }
 

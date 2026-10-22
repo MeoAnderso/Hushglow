@@ -2,9 +2,93 @@ import AppKit
 import Carbon.HIToolbox
 import DisplayKeysCore
 
+/// What `KeyboardInput` needs from the global shortcuts. Tests stand in for it, so that they
+/// register nothing with macOS.
+@MainActor
+protocol ShortcutRegistry: AnyObject {
+    /// One entry per shortcut that was asked for, including those macOS refused.
+    var statuses: [AppStatus.ShortcutStatus] { get }
+    /// Registers the configured shortcuts, replacing any earlier registration.
+    func reload()
+    func unregisterAll()
+    func stopRepeating()
+}
+
+/// The repeat of a held shortcut. Carbon reports a press and a release and nothing in between,
+/// so the steps between them are made here, at the keyboard's own pace.
+@MainActor
+final class ShortcutRepeat {
+    /// Something that fires until it is stopped, as a repeating timer does.
+    typealias Ticker =
+        @MainActor (_ pace: Hotkeys.RepeatPace, _ fire: @escaping @MainActor () -> Void) ->
+        any RepeatTicker
+
+    /// Stops a repeat whose release was never delivered; enough to cross the whole range.
+    static let maximumRepeats = Level.fineSteps
+
+    private let pace: @MainActor () -> Hotkeys.RepeatPace?
+    private let ticker: Ticker
+    private var running: (any RepeatTicker)?
+    /// The shortcut being held, and how many times it has repeated.
+    private(set) var held: (id: UInt32, count: Int)?
+
+    /// The pace is read at each press, and so follows a change in System Settings.
+    init(
+        pace: @escaping @MainActor () -> Hotkeys.RepeatPace? = { Hotkeys.repeatPace() },
+        ticker: @escaping Ticker = ShortcutRepeat.timer
+    ) {
+        self.pace = pace
+        self.ticker = ticker
+    }
+
+    /// A shortcut was pressed: its repeat starts after the keyboard's delay, unless it does not
+    /// repeat or key repeat is switched off. Any other repeat stops.
+    func pressed(_ id: UInt32, repeats: Bool, step: @escaping @MainActor () -> Void) {
+        stop()
+        guard repeats, let pace = pace() else { return }
+        held = (id, 0)
+        running = ticker(pace) { [weak self] in self?.fired(step) }
+    }
+
+    /// A shortcut was let go; only its own repeat stops.
+    func released(_ id: UInt32) {
+        if held?.id == id { stop() }
+    }
+
+    func stop() {
+        running?.stop()
+        running = nil
+        held = nil
+    }
+
+    private func fired(_ step: @MainActor () -> Void) {
+        guard let current = held, current.count < Self.maximumRepeats else { return stop() }
+        held = (current.id, current.count + 1)
+        step()
+    }
+
+    /// A timer on the main run loop, in every mode, so that an open menu does not hold it up.
+    static func timer(_ pace: Hotkeys.RepeatPace, _ fire: @escaping @MainActor () -> Void) -> any RepeatTicker {
+        let timer = Timer(timeInterval: pace.interval, repeats: true) { _ in MainActor.assumeIsolated { fire() } }
+        timer.fireDate = Date(timeIntervalSinceNow: pace.delay)
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
+    }
+}
+
+/// A repeat that runs until it is stopped.
+@MainActor
+protocol RepeatTicker {
+    func stop()
+}
+
+extension Timer: RepeatTicker {
+    func stop() { invalidate() }
+}
+
 /// Global shortcuts through Carbon hot keys, which need no permission and cost nothing while idle.
 @MainActor
-final class Hotkeys: NSObject {
+final class Hotkeys: NSObject, ShortcutRegistry {
     typealias Handler = @MainActor (Shortcut.Action, _ fine: Bool) -> Void
 
     private struct Registration {
@@ -25,8 +109,6 @@ final class Hotkeys: NSObject {
     /// The slowest pace System Settings offers is two seconds. Switched off, key repeat is
     /// reported as an interval of more than an hour.
     private static let longestRepeatInterval: TimeInterval = 60
-    /// Stops a repeat whose key release was never delivered; enough to cross the whole range.
-    private static let maximumRepeats = Level.fineSteps
 
     /// One entry per shortcut that was asked for, including those macOS refused.
     private(set) var statuses: [AppStatus.ShortcutStatus] = []
@@ -34,8 +116,7 @@ final class Hotkeys: NSObject {
     private let handler: Handler
     private var registrations: [UInt32: Registration] = [:]
     private var eventHandler: EventHandlerRef?
-    private var repeatTimer: Timer?
-    private var repeating: (id: UInt32, count: Int)?
+    private let repeating = ShortcutRepeat()
 
     init(handler: @escaping Handler) {
         self.handler = handler
@@ -137,36 +218,19 @@ final class Hotkeys: NSObject {
     }
 
     func stopRepeating() {
-        repeatTimer?.invalidate()
-        repeatTimer = nil
-        repeating = nil
+        repeating.stop()
     }
 
     fileprivate func handle(id: UInt32, pressed: Bool) {
         guard let registration = registrations[id] else { return }
-        guard pressed else {
-            if repeating?.id == id { stopRepeating() }
-            return
+        guard pressed else { return repeating.released(id) }
+        handler(registration.action, registration.fine)
+        repeating.pressed(id, repeats: registration.action.repeatsWhileHeld) { [weak self] in
+            // A shortcut unregistered while held, as when the menu opens, repeats no more.
+            guard let self else { return }
+            guard registrations[id] != nil else { return stopRepeating() }
+            handler(registration.action, registration.fine)
         }
-        stopRepeating()
-        handler(registration.action, registration.fine)
-        // Carbon reports only press and release, so holding the shortcut is repeated here. The
-        // pace is read at each press, and so follows a change in System Settings.
-        guard registration.action.repeatsWhileHeld, let pace = Self.repeatPace() else { return }
-        repeating = (id, 0)
-        let timer = Timer(
-            fireAt: Date(timeIntervalSinceNow: pace.delay), interval: pace.interval,
-            target: self, selector: #selector(repeatFired), userInfo: nil, repeats: true
-        )
-        RunLoop.main.add(timer, forMode: .common)
-        repeatTimer = timer
-    }
-
-    @objc private func repeatFired() {
-        guard let current = repeating, let registration = registrations[current.id], current.count < Self.maximumRepeats
-        else { return stopRepeating() }
-        repeating = (current.id, current.count + 1)
-        handler(registration.action, registration.fine)
     }
 
     private func register(_ shortcut: Shortcut, id: UInt32, action: Shortcut.Action, fine: Bool, system: [Shortcut]) {

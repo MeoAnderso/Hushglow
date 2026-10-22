@@ -28,7 +28,14 @@ final class KeyboardInput {
     private lazy var keyTap = MediaKeyTap(
         handler: { [unowned self] event, decision in took(event, decision) },
         onDisabled: { [unowned self] in updateKeyTap() })
-    private lazy var hotkeys = Hotkeys { [unowned self] action, fine in shortcutPressed(action, fine: fine) }
+    private let makeRegistry: (@escaping Hotkeys.Handler) -> any ShortcutRegistry
+    private lazy var hotkeys = makeRegistry { [unowned self] action, fine in shortcutPressed(action, fine: fine) }
+
+    /// The shortcuts are registered with macOS through Carbon; tests pass a registry of their
+    /// own, which hands them the handler a pressed shortcut calls.
+    init(makeRegistry: @escaping (@escaping Hotkeys.Handler) -> any ShortcutRegistry = { Hotkeys(handler: $0) }) {
+        self.makeRegistry = makeRegistry
+    }
 
     var keysAreActive: Bool { keyTap.isRunning }
     var accessIsGranted: Bool { access.isGranted }
@@ -178,7 +185,7 @@ final class KeyboardInput {
     }
 
     /// Takes note of a key press the tap has decided about, and runs its command.
-    private func took(_ event: MediaKeyEvent, _ decision: KeyRouting.Decision) {
+    func took(_ event: MediaKeyEvent, _ decision: KeyRouting.Decision) {
         let handled = decision != .passThrough
         if handled { input.keysHandled += 1 } else { input.keysLeftToSystem += 1 }
         input.record("key \(event.key), \(handled ? "handled" : "left to macOS")")
