@@ -58,6 +58,9 @@ import Testing
             .appendingPathComponent("Resources/Info.plist")
         let info = try #require(NSDictionary(contentsOf: plist))
         #expect(info["CFBundleIdentifier"] as? String == AppInfo.bundleID)
+        // What Finder's Get Info and the App Store's categories show.
+        #expect((info["NSHumanReadableCopyright"] as? String)?.contains("MIT") == true)
+        #expect(info["LSApplicationCategoryType"] as? String == "public.app-category.utilities")
     }
 
     /// Until the identifier changes there is nothing to carry over, and nothing is touched.
