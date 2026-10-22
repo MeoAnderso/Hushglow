@@ -620,7 +620,7 @@ private final class KeySession: NSObject, NSMenuDelegate {
                 #expect(session.taken == ["ctrl+alt+up"])
                 // Down moved to the first item and then to the second; the shortcut between
                 // them moved nothing.
-                #expect(session.highlighted == ["One", "Two"])
+                #expect(session.highlighted == ["One", "Two"], "Highlighted: \(session.highlighted)")
             }
         }
     }
