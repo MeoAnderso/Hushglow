@@ -138,6 +138,16 @@ swift Scripts/make-icon.swift   # redraws the icon's layers, only needed after c
 The app runs on macOS 26 or later. Building it requires Xcode's Swift 6.2 toolchain or
 later. There are no third-party dependencies.
 
+Every build runs with the hardened runtime. With a Developer ID certificate, the build script
+also has Apple notarize the app and staples the ticket to it:
+
+```bash
+CODESIGN_IDENTITY="Developer ID Application: <name> (<team>)" NOTARY_PROFILE=<profile> Scripts/build-app.sh
+```
+
+The profile holds the notarization credentials in the keychain; create it once with
+`xcrun notarytool store-credentials <profile>`.
+
 Running the tests with `PREVIEW_DIR` set to a folder also writes pictures of the indicator,
 the menu, Settings, the notices and the helper there. That puts windows and a menu on screen
 for a few seconds.
