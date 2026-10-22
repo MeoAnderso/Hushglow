@@ -198,8 +198,8 @@ Once, create the update key and give the app its public half:
 ```
 
 It keeps the private key in your login keychain and prints the public key; put that in
-`Resources/Info.plist` as `SUPublicEDKey`. Keep the private key safe (`generate_keys -x`
-exports it): without it no installed copy can be updated again.
+`Resources/Info.plist` as `SUPublicEDKey`. Keep a copy of the private key somewhere safe
+(`generate_keys -x <file>` exports it): without it no installed copy can be updated again.
 
 For each release, raise `CFBundleShortVersionString` and `CFBundleVersion` in
 `Resources/Info.plist`, commit, and run `Scripts/release.sh`. It builds the app, signs the
