@@ -165,7 +165,8 @@ it. The app handles this itself. The first time a new build runs without access,
 what happened, and "Turn On Brightness and Volume Keys…" first clears the stale entry, so
 the list is ready for the app to be dragged in again. The menu and Settings offer the same at
 any time, and unticking "Ask again after updates", in that notice or in Settings, stops new
-builds from raising it.
+builds from raising it. A build signed with a certificate keeps its access across updates
+signed with the same certificate, and raises the subject only when the certificate changes.
 
 To skip even that, create a signing certificate once: in Keychain Access choose
 Certificate Assistant → Create a Certificate, name it `DisplayKeys Dev`, with Identity Type

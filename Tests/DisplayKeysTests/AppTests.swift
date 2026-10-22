@@ -89,6 +89,25 @@ import Testing
         #expect(current.string(forKey: "indicator.style") == nil)
     }
 
+    /// What macOS ties a permission to: the certificate, which Apple's own apps have, else the
+    /// build. Nothing here is signed; signatures are only read.
+    @Test func aSignatureIsTheCertificateWhereThereIsOne() throws {
+        func information(at path: String) throws -> [String: Any] {
+            var code: SecStaticCode?
+            #expect(SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &code) == errSecSuccess)
+            let staticCode = try #require(code)
+            return try #require(CodeIdentity.information(of: staticCode))
+        }
+        let signed = try information(at: "/System/Applications/Calculator.app")
+        #expect(CodeIdentity.certificate(in: signed)?.count == 64)
+        #expect(CodeIdentity.buildHash(in: signed) != nil)
+
+        // The tests are signed by the linker, ad hoc: a build, and no certificate.
+        let adHoc = try information(at: try #require(Bundle(for: StubHost.self).executablePath))
+        #expect(CodeIdentity.certificate(in: adHoc) == nil)
+        #expect(CodeIdentity.buildHash(in: adHoc) != nil)
+    }
+
     /// A first install has no earlier settings; it is still marked done.
     @Test func carryingOverNothingIsDoneToo() throws {
         let name = "local.DisplayKeys.tests.\(UUID().uuidString)"

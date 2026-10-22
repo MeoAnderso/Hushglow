@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CryptoKit
 import DisplayKeysCore
 import Security
 import notify
@@ -8,8 +9,10 @@ import notify
 ///
 /// macOS ties the permission to the app's signature. After an update of an app that has no
 /// signing certificate, System Settings still shows the switch as on while macOS ignores it,
-/// and the app cannot tell that state from "never granted". So it clears its own entry
-/// whenever access is asked for, and the user adds the app to the list afresh.
+/// and the app cannot tell that state from "never granted". So such a build clears its own
+/// entry whenever access is asked for, and the user adds the app to the list afresh. A build
+/// signed with a certificate keeps its grant across updates; it clears the entry only when it
+/// has not had access under that certificate yet (`AccessPolicy`).
 @MainActor
 final class AccessibilityAccess: NSObject {
     /// What System Settings calls the list under Privacy & Security; macOS 27 renamed it.
@@ -26,7 +29,10 @@ final class AccessibilityAccess: NSObject {
     /// After System Settings' notification there is no immediate reading at all: one taken
     /// before the change is stored can leave the old answer cached.
     private static let rereadDelays: [TimeInterval] = [0.5, 2]
+    /// The signature that last raised the subject; the key is from when it was always the build.
     private static let handledBuildKey = "accessibilityHandledBuild"
+    /// The signature access was last seen granted under.
+    private static let grantedSignatureKey = "accessibilityGrantedSignature"
     private static let askingDisabledKey = "accessibilityAskingDisabled"
     private static let listURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 
@@ -54,22 +60,29 @@ final class AccessibilityAccess: NSObject {
         }
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(changeAnnounced), name: Self.changedNotification, object: nil)
-        let build = CodeIdentity.current ?? "unknown"
+        let signature = CodeIdentity.signature ?? "unknown"
+        noteGrant()
         let shouldAsk = AccessPolicy.shouldAskAtLaunch(
-            isGranted: isGranted, handledBuild: AppInfo.defaults.string(forKey: Self.handledBuildKey),
-            currentBuild: build, askingIsDisabled: askingIsDisabled)
-        AppInfo.defaults.set(build, forKey: Self.handledBuildKey)
+            isGranted: isGranted, handledSignature: AppInfo.defaults.string(forKey: Self.handledBuildKey),
+            currentSignature: signature, askingIsDisabled: askingIsDisabled)
+        AppInfo.defaults.set(signature, forKey: Self.handledBuildKey)
         return shouldAsk
     }
 
-    /// Clears the entry macOS holds for this app, opens the list in System Settings, and shows
-    /// a helper under it with the app's icon to drag in. Does nothing when access is already
-    /// granted.
+    /// Clears the entry macOS holds for this app where it can be stale, opens the list in
+    /// System Settings, and shows a helper under it with the app's icon to drag in. Does
+    /// nothing when access is already granted.
     ///
     /// Only two things put an app in that list: the user adding it, or macOS's own alert. The
     /// helper offers the alert as the way to add the app without dragging.
     func request() {
         guard !isGranted else { return }
+        guard
+            AccessPolicy.clearsEntryBeforeAsking(
+                isAdHoc: !CodeIdentity.isSignedWithCertificate,
+                grantedSignature: AppInfo.defaults.string(forKey: Self.grantedSignatureKey),
+                currentSignature: CodeIdentity.signature ?? "unknown")
+        else { return guide() }
         let reset = Process()
         reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
         reset.arguments = ["reset", "Accessibility", AppInfo.bundleID]
@@ -119,28 +132,69 @@ final class AccessibilityAccess: NSObject {
         if isGranted {
             helper?.dismiss()
             helper = nil
+            noteGrant()
         }
         onChange?()
     }
+
+    /// Remembers the signature access is granted under, so that a later build signed alike
+    /// knows the entry in the list to be its own.
+    private func noteGrant() {
+        guard isGranted, let signature = CodeIdentity.signature,
+            AppInfo.defaults.string(forKey: Self.grantedSignatureKey) != signature
+        else { return }
+        AppInfo.defaults.set(signature, forKey: Self.grantedSignatureKey)
+    }
 }
 
+/// The app's signature, as macOS sees it when it grants a permission.
 enum CodeIdentity {
+    /// This build's hash and its certificate's, read once; nil where they cannot be read.
+    private static let own: (build: String?, certificate: String?) = {
+        var code: SecCode?
+        var staticCode: SecStaticCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+            SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+            let information = information(of: staticCode)
+        else { return (nil, nil) }
+        return (buildHash(in: information), certificate(in: information))
+    }()
+
+    static func information(of code: SecStaticCode) -> [String: Any]? {
+        var information: CFDictionary?
+        let flags = SecCSFlags(rawValue: kSecCSSigningInformation)
+        guard SecCodeCopySigningInformation(code, flags, &information) == errSecSuccess else { return nil }
+        return information as? [String: Any]
+    }
+
     /// The hash of this build's code, which is what macOS binds a permission to when the app
     /// has no signing certificate. nil when the signature cannot be read.
-    static let current: String? = {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var information: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, [], &information) == errSecSuccess,
-            let hash = (information as? [String: Any])?[kSecCodeInfoUnique as String] as? Data
-        else { return nil }
-        return hash.map { String(format: "%02x", $0) }.joined()
-    }()
+    static var current: String? { own.build }
 
     /// A short form for people, in the way git abbreviates a commit.
     static var short: String? {
         current.map { String($0.prefix(7)) }
+    }
+
+    /// Whether this build is signed with a certificate, which stays the same across builds.
+    static var isSignedWithCertificate: Bool { own.certificate != nil }
+
+    /// What macOS ties a permission to: the certificate when the build has one, else the build.
+    static var signature: String? { own.certificate ?? own.build }
+
+    static func buildHash(in information: [String: Any]) -> String? {
+        (information[kSecCodeInfoUnique as String] as? Data).map(hex)
+    }
+
+    /// A hash of the certificate the code is signed with; nil for an ad-hoc signature.
+    static func certificate(in information: [String: Any]) -> String? {
+        guard let certificates = information[kSecCodeInfoCertificates as String] as? [SecCertificate],
+            let leaf = certificates.first
+        else { return nil }
+        return hex(Data(SHA256.hash(data: SecCertificateCopyData(leaf) as Data)))
+    }
+
+    private static func hex(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
     }
 }

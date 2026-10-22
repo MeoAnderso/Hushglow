@@ -615,10 +615,12 @@ import Testing
 @Suite struct AccessPolicyTests {
     private func shouldAsk(granted: Bool = false, handled: String? = "old", disabled: Bool = false) -> Bool {
         AccessPolicy.shouldAskAtLaunch(
-            isGranted: granted, handledBuild: handled, currentBuild: "new", askingIsDisabled: disabled)
+            isGranted: granted, handledSignature: handled, currentSignature: "new", askingIsDisabled: disabled)
     }
 
-    @Test func asksOncePerBuildWhileAccessIsMissing() {
+    /// An ad-hoc build is a signature of its own, so this is once per build; with a
+    /// certificate, once per certificate.
+    @Test func asksOncePerSignatureWhileAccessIsMissing() {
         #expect(shouldAsk(handled: nil))
         #expect(shouldAsk(handled: "old"))
         #expect(!shouldAsk(handled: "new"))
@@ -627,6 +629,19 @@ import Testing
     @Test func neverAsksWhenAccessIsGrantedOrAskingIsOff() {
         #expect(!shouldAsk(granted: true))
         #expect(!shouldAsk(disabled: true))
+    }
+
+    @Test func clearsOnlyAnEntryThatCanBeStale() {
+        // Ad-hoc: any entry may be an earlier build's, which macOS ignores.
+        func clears(adHoc: Bool, granted: String?) -> Bool {
+            AccessPolicy.clearsEntryBeforeAsking(isAdHoc: adHoc, grantedSignature: granted, currentSignature: "cert")
+        }
+        #expect(clears(adHoc: true, granted: "cert"))
+        // A certificate that was never seen with access, or another one: the entry can be stale.
+        #expect(clears(adHoc: false, granted: nil))
+        #expect(clears(adHoc: false, granted: "old"))
+        // Access was had under this certificate: the entry is the user's, switched off or gone.
+        #expect(!clears(adHoc: false, granted: "cert"))
     }
 }
 
