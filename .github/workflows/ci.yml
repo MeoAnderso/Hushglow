@@ -30,14 +30,18 @@ jobs:
         run: swift build -Xswiftc -warnings-as-errors
 
       # A test process that has used AppKit's event loop can end with status 0 without
-      # reporting, so both test runs, Swift Testing's for each test target, must have said so.
+      # reporting, so the tests that reported passing must add up to every test there is.
+      # Swift Testing reports a run per test process: one per target with some toolchains, one
+      # for both with others.
       - name: Test
         run: |
           set -o pipefail
           swift test 2>&1 | tee test.log
-          passed=$(grep -c "Test run with .* passed" test.log || true)
-          if [ "$passed" -ne 2 ]; then
-            echo "::error::Expected two test runs to report passing, found $passed."
+          expected=$(grep -rhoE '@Test\b' Tests | wc -l | tr -d ' ')
+          passed=$(grep -oE 'Test run with [0-9]+ tests? in [0-9]+ suites? passed' test.log \
+            | awk '{ sum += $4 } END { print sum + 0 }')
+          if [ "$passed" -ne "$expected" ]; then
+            echo "::error::$passed tests reported passing, of the $expected there are."
             exit 1
           fi
 

@@ -13,7 +13,10 @@ import Testing
 
     /// On this Mac as it is: every external display's DDC service is paired with the screen it
     /// reaches, by what its EDID says. Nothing is written to a display, and nothing read from one.
-    @Test func everyExternalDisplayIsPairedWithItsScreen() throws {
+    /// The screen of a virtual machine, as on GitHub's runners, counts as external and has no
+    /// DDC service, so the test is left out there.
+    @Test(.disabled(if: ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] != nil, "No DDC on a virtual machine"))
+    func everyExternalDisplayIsPairedWithItsScreen() throws {
         let io = try #require(IOAV.shared)
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
@@ -1701,8 +1704,12 @@ final class StubMenuHost: StatusMenuHost {
     }
 
     /// The app answers on the main thread, so the asking is done on another, as the command
-    /// line, in a process of its own, does.
-    private func ask(_ request: ChannelRequest, timeout: TimeInterval = CommandClient.timeout) async -> ChannelReply? {
+    /// line, in a process of its own, does. The on-screen tests that run beside these can keep
+    /// the main thread for seconds, as they do on GitHub's runners, so the wait is far longer
+    /// than the command line's.
+    private static let patience: TimeInterval = 30
+
+    private func ask(_ request: ChannelRequest, timeout: TimeInterval = patience) async -> ChannelReply? {
         let client = CommandClient(name: name)
         return await Task.detached { client.ask(request, timeout: timeout) }.value
     }
@@ -1811,7 +1818,7 @@ final class StubMenuHost: StatusMenuHost {
         await Task.detached { () -> Data in
             let nc = Process()
             nc.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
-            nc.arguments = ["-U", "-w", "3", path]
+            nc.arguments = ["-U", "-w", String(Int(Self.patience)), path]
             let input = Pipe()
             let output = Pipe()
             nc.standardInput = input
