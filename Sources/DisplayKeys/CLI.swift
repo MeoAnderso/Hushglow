@@ -71,12 +71,12 @@ enum CLI {
             return fail(usage, status: 64)
         }
         if AppInfo.otherInstance != nil {
-            if let display {
-                let count = client.requestStatus()?.displays?.count ?? 0
-                guard display <= count else { return fail("There is no display \(display); `status` lists them.") }
+            let send = { ask(.command(command, display: display)) { _ in 0 } }
+            guard let display else { return send() }
+            return ask(.status) { reply in
+                display <= reply.status?.displays?.count ?? 0
+                    ? send() : fail("There is no display \(display); `status` lists them.")
             }
-            client.send(command, display: display)
-            return 0
         }
         guard let io = IOAV.shared else { return fail(noTransport) }
         // Numbered as the running app numbers them: the displays that answer, in order.
@@ -99,15 +99,17 @@ enum CLI {
         guard arguments.count == 2, let feature = DDC.Feature(name: arguments[1]) else {
             return fail(usage, status: 64)
         }
-        let values: [DDC.Value]
         if AppInfo.otherInstance != nil {
             // The running app does the reading: two processes must not talk to a display at once.
-            guard let answer = client.requestValues(of: feature) else { return fail(didNotAnswer) }
-            values = answer.map { DDC.Value(current: $0.current, maximum: $0.maximum) }
-        } else {
-            guard let io = IOAV.shared else { return fail(noTransport) }
-            values = io.displays().compactMap { io.get($0, feature) }
+            return ask(.values(of: feature)) { reply in
+                show((reply.values ?? []).map { DDC.Value(current: $0.current, maximum: $0.maximum) }, of: feature)
+            }
         }
+        guard let io = IOAV.shared else { return fail(noTransport) }
+        return show(io.displays().compactMap { io.get($0, feature) }, of: feature)
+    }
+
+    private static func show(_ values: [DDC.Value], of feature: DDC.Feature) -> Int32 {
         guard !values.isEmpty else { return fail("No connected display answered.") }
         for value in values {
             switch feature {
@@ -177,14 +179,19 @@ enum CLI {
             return fail("Unknown action: \(arguments[0]). Actions: \(actions), \(quarterStepsWord)", status: 64)
         }
 
-        client.notifyShortcutsChanged()
-        // The running app answers after it has registered the new shortcuts.
-        guard AppInfo.otherInstance != nil, let status = client.requestStatus() else {
-            return succeed("Saved. \(notRunning)")
+        guard AppInfo.otherInstance != nil else { return succeed("Saved. \(notRunning)") }
+        // The running app answers once it has registered the new shortcuts.
+        return ask(.shortcutsChanged) { reply in
+            guard let status = reply.status else { return fail(didNotAnswer) }
+            return report(status.shortcuts)
         }
-        let refused = status.shortcuts.filter { !$0.registered }
-        let clashing = status.shortcuts.filter(\.usedByMacOS)
-        for entry in status.shortcuts { print(describe(entry)) }
+    }
+
+    /// What became of the shortcuts the running app registered.
+    private static func report(_ shortcuts: [AppStatus.ShortcutStatus]) -> Int32 {
+        let refused = shortcuts.filter { !$0.registered }
+        let clashing = shortcuts.filter(\.usedByMacOS)
+        for entry in shortcuts { print(describe(entry)) }
         if !refused.isEmpty {
             return fail("macOS refused \(refused.map(\.keys).joined(separator: ", ")); choose other keys.")
         }
@@ -202,21 +209,22 @@ enum CLI {
 
     private static func status() -> Int32 {
         guard AppInfo.otherInstance != nil else { return fail(notRunning) }
-        guard let status = client.requestStatus() else { return fail(didNotAnswer) }
-        return succeed(describe(status))
+        return ask(.status) { reply in reply.status.map { succeed(describe($0)) } ?? fail(didNotAnswer) }
     }
 
     /// Has the running app record, for a few seconds, which special keys reach it.
     private static func watchKeys(_ arguments: [String]) -> Int32 {
         let seconds = arguments.count > 1 ? Int(arguments[1]) ?? 0 : 10
         guard arguments.count <= 2, (1...60).contains(seconds) else { return fail(usage, status: 64) }
-        guard AppInfo.otherInstance != nil, let before = client.requestStatus() else { return fail(notRunning) }
-        guard before.keyTapActive else {
-            return fail(
-                "Watching keys needs the \(KeyboardKeys.phrase) turned on; choose \"Turn On "
-                    + "\(KeyboardKeys.name)…\" in the menu.")
+        guard AppInfo.otherInstance != nil else { return fail(notRunning) }
+        let isOn = ask(.status) { reply in
+            reply.status?.keyTapActive == true
+                ? 0
+                : fail(
+                    "Watching keys needs the \(KeyboardKeys.phrase) turned on; choose \"Turn On "
+                        + "\(KeyboardKeys.name)…\" in the menu.")
         }
-        client.watchKeys(seconds: seconds)
+        guard isOn == 0, ask(.watchKeys(seconds: seconds), then: { _ in 0 }) == 0 else { return 1 }
         print("Press the keys you want to identify. Watching for \(seconds) seconds; ordinary typing is not recorded.")
         Thread.sleep(forTimeInterval: TimeInterval(seconds) + 0.5)
         guard let seen = client.requestStatus()?.watchedKeys else { return fail("The app did not report back.") }
@@ -254,9 +262,13 @@ enum CLI {
         }
         print("Launch at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off")")
 
+        let reply = AppInfo.otherInstance == nil ? nil : client.ask(.status)
         if AppInfo.otherInstance == nil {
             print("App: not running")
-        } else if let status = client.requestStatus() {
+        } else if let refusal = reply?.refusal {
+            print("App: running, but it did not answer: \(refusal)")
+            healthy = false
+        } else if let status = reply?.status {
             print("App: running\n" + describe(status).split(separator: "\n").map { "  \($0)" }.joined(separator: "\n"))
             healthy = healthy && status.shortcuts.allSatisfy { $0.registered && !$0.usedByMacOS }
             if keyTest { healthy = self.keyTest(status) && healthy }
@@ -295,11 +307,12 @@ enum CLI {
             print("  Key test: skipped; it needs the \(KeyboardKeys.phrase) on and sound going to the display")
             return true
         }
-        client.requestKeyTest()
+        _ = client.ask(.keyTest)
         Thread.sleep(forTimeInterval: 0.6)
         let after = client.requestStatus()
-        client.send(.set(.volume, percent: Int((Double(volume.current) * 100 / Double(volume.maximum)).rounded())))
-        if before.muted { client.send(.mute(.on)) }
+        let percent = Int((Double(volume.current) * 100 / Double(volume.maximum)).rounded())
+        _ = client.ask(.command(.set(.volume, percent: percent)))
+        if before.muted { _ = client.ask(.command(.mute(.on))) }
         let received = (after?.input.keysHandled ?? 0) > before.input.keysHandled
         let moved = after?.volume.map { "volume \(volume.current) -> \($0.current), put back" } ?? "no answer"
         let outcome = received ? "passed, a simulated volume key reached" : "FAILED, no simulated volume key reached"
@@ -388,6 +401,13 @@ enum CLI {
 
     private static func describe(_ value: Int?) -> String {
         value.map(String.init) ?? "no answer"
+    }
+
+    /// Sends a request to the running app and hands on its answer; without one, says why.
+    private static func ask(_ request: ChannelRequest, then use: (ChannelReply) -> Int32) -> Int32 {
+        guard let reply = client.ask(request) else { return fail(didNotAnswer) }
+        if let refusal = reply.refusal { return fail(refusal) }
+        return use(reply)
     }
 
     private static func succeed(_ message: String) -> Int32 {

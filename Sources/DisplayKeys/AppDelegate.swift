@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
                 onWatchKeys: { [unowned self] in watchKeys(for: $0) },
                 readValues: { [unowned self] in readValues(of: $0, answer: $1) },
                 status: { [unowned self] in status }))
+        if channel == nil { log.error("The command line cannot reach the app: its socket could not be made") }
         keyboard.watch.onEnd = { [unowned self] in osd.release(.watchingKeys) }
         audio.onChange = { [unowned self] in keyboard.updateRouting() }
         audio.startListening()
@@ -107,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
 
     func applicationWillTerminate(_ notification: Notification) {
         keyboard.stop()
+        channel?.stop()
     }
 
     /// Explains the app on its first launch, and the lost permission after an update, before

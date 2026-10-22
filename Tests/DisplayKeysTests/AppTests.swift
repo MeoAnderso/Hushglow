@@ -1650,8 +1650,9 @@ final class StubMenuHost: StatusMenuHost {
 
 @MainActor
 @Suite struct CommandChannelTests {
-    /// A private namespace, so these tests never reach an installed copy of the app.
-    private let namespace = "local.DisplayKeys.tests.\(UUID().uuidString)"
+    /// A channel of the tests' own, so that they never reach an installed copy of the app. The
+    /// name is short, since a socket's path has room for about a hundred bytes.
+    private let name = "dk-test-\(UUID().uuidString.prefix(8))"
 
     @MainActor
     private final class Received {
@@ -1661,13 +1662,6 @@ final class StubMenuHost: StatusMenuHost {
         var watches: [TimeInterval] = []
         var reads: [DDC.Feature] = []
         var displays: [Int?] = []
-    }
-
-    /// Waits without blocking the main thread, which is where the notifications arrive.
-    private func wait(until condition: () -> Bool) async {
-        for _ in 0..<150 where !condition() {
-            try? await Task.sleep(for: .milliseconds(20))
-        }
     }
 
     private func makeStatus() -> AppStatus {
@@ -1681,29 +1675,47 @@ final class StubMenuHost: StatusMenuHost {
             watchedKeys: ["key f11"])
     }
 
-    @Test func carriesEveryMessageToTheApp() async {
-        let received = Received()
-        let channel = CommandChannel(
-            namespace: namespace,
-            handlers: .init(
-                onCommand: { command, display in
-                    received.commands.append(command)
-                    received.displays.append(display)
-                },
-                onShortcutsChanged: { received.shortcutChanges += 1 },
-                onKeyTest: { received.keyTests += 1 },
-                onWatchKeys: { received.watches.append($0) },
-                readValues: { _, _ in },
-                status: makeStatus))
-        defer { channel.stop() }
-        let client = CommandClient(namespace: namespace)
+    @MainActor
+    private func makeChannel(
+        _ received: Received = Received(), requirement: CallerRequirement? = .own
+    ) throws -> CommandChannel {
+        try #require(
+            CommandChannel(
+                name: name, requirement: requirement,
+                handlers: .init(
+                    onCommand: { command, display in
+                        received.commands.append(command)
+                        received.displays.append(display)
+                    },
+                    onShortcutsChanged: { received.shortcutChanges += 1 },
+                    onKeyTest: { received.keyTests += 1 },
+                    onWatchKeys: { received.watches.append($0) },
+                    readValues: { feature, answer in
+                        received.reads.append(feature)
+                        answer([.init(current: 13, maximum: 100)])
+                    },
+                    status: makeStatus)))
+    }
 
-        client.send(.step(.volume, up: true, fine: true))
-        client.send(.mute(.off), display: 2)
-        client.notifyShortcutsChanged()
-        client.requestKeyTest()
-        client.watchKeys(seconds: 10)
-        await wait { received.watches.count == 1 }
+    /// The app answers on the main thread, so the asking is done on another, as the command
+    /// line, in a process of its own, does.
+    private func ask(_ request: ChannelRequest, timeout: TimeInterval = CommandClient.timeout) async -> ChannelReply? {
+        let client = CommandClient(name: name)
+        return await Task.detached { client.ask(request, timeout: timeout) }.value
+    }
+
+    @MainActor
+    @Test func carriesEveryMessageToTheApp() async throws {
+        let received = Received()
+        let channel = try makeChannel(received)
+        defer { channel.stop() }
+
+        #expect(await ask(.command(.step(.volume, up: true, fine: true)))?.refusal == nil)
+        #expect(await ask(.command(.mute(.off), display: 2)) != nil)
+        #expect(await ask(.keyTest) != nil)
+        #expect(await ask(.watchKeys(seconds: 10)) != nil)
+        // Registering the shortcuts again is answered with what became of them.
+        #expect(await ask(.shortcutsChanged)?.status?.shortcuts.first?.keys == "ctrl+alt+end")
 
         #expect(received.commands == [.step(.volume, up: true, fine: true), .mute(.off)])
         // A command for one display carries its number; one for every display, none.
@@ -1713,18 +1725,22 @@ final class StubMenuHost: StatusMenuHost {
         #expect(received.watches == [10])
     }
 
-    @Test func returnsTheAppsStatus() async throws {
-        let channel = CommandChannel(
-            namespace: namespace,
-            handlers: .init(
-                onCommand: { _, _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in },
-                readValues: { _, _ in }, status: makeStatus))
+    @MainActor
+    @Test func turnsDownWhatIsNoRequest() async throws {
+        let received = Received()
+        let channel = try makeChannel(received)
         defer { channel.stop() }
+        #expect(await ask(ChannelRequest(kind: .command, words: ["step", "loudness", "up"]))?.refusal != nil)
+        #expect(await ask(.watchKeys(seconds: 600))?.refusal != nil)
+        #expect(await ask(ChannelRequest(kind: .values, feature: "colour"))?.refusal != nil)
+        #expect(received.commands.isEmpty && received.watches.isEmpty && received.reads.isEmpty)
+    }
 
-        let request = CommandClient(namespace: namespace).beginStatusRequest()
-        defer { request.finish() }
-        await wait { request.answer != nil }
-        let status = try #require(request.answer)
+    @MainActor
+    @Test func returnsTheAppsStatus() async throws {
+        let channel = try makeChannel()
+        defer { channel.stop() }
+        let status = try #require(await ask(.status)?.status)
         #expect(status.version == "9.9.9")
         #expect(status.build == "abc1234")
         #expect(status.brightness?.current == 61)
@@ -1732,6 +1748,96 @@ final class StubMenuHost: StatusMenuHost {
         #expect(status.lastReadMilliseconds == 31)
         #expect(status.memoryFootprint == 24_536_000)
         #expect(status.watchedKeys == ["key f11"])
+    }
+
+    /// `DisplayKeys get` has the running app read the display, and gets what it answered.
+    @MainActor
+    @Test func hasTheAppReadAValue() async throws {
+        let received = Received()
+        let channel = try makeChannel(received)
+        defer { channel.stop() }
+        let values = try #require(await ask(.values(of: .volume))?.values)
+        #expect(received.reads == [.volume])
+        #expect(values.map(\.current) == [13] && values.map(\.maximum) == [100])
+    }
+
+    /// The command line is the app's own executable, so it meets the app's own requirement;
+    /// a caller that does not is told why, and nothing it asked for is done.
+    @MainActor
+    @Test func answersOnlyACallerThatMeetsTheRequirement() async throws {
+        let received = Received()
+        let channel = try makeChannel(received, requirement: CallerRequirement(#"identifier "com.example.other""#))
+        defer { channel.stop() }
+        let reply = await ask(.command(.mute(.on)))
+        #expect(reply?.refusal == CommandChannel.notTheApp)
+        #expect(await ask(.status)?.status == nil)
+        #expect(received.commands.isEmpty)
+    }
+
+    /// Another program on the Mac, here the system's own `nc`, is turned down by a channel
+    /// that answers the tests' own process.
+    @MainActor
+    @Test func anotherProgramIsTurnedDown() async throws {
+        let received = Received()
+        let channel = try makeChannel(received)
+        defer { channel.stop() }
+        let reply = try JSONDecoder().decode(ChannelReply.self, from: await askThroughNC(channel.path))
+        #expect(reply.refusal == CommandChannel.notTheApp)
+        #expect(received.commands.isEmpty)
+    }
+
+    /// A process of its own is answered when its signature meets the requirement, as the
+    /// command line meets the app's: here `nc` with a channel that asks for `nc`'s signature.
+    @MainActor
+    @Test func aProgramThatMeetsTheRequirementIsAnswered() async throws {
+        var code: SecStaticCode?
+        var requirement: SecRequirement?
+        #expect(SecStaticCodeCreateWithPath(URL(fileURLWithPath: "/usr/bin/nc") as CFURL, [], &code) == errSecSuccess)
+        let nc = try #require(code)
+        #expect(SecCodeCopyDesignatedRequirement(nc, [], &requirement) == errSecSuccess)
+        let received = Received()
+        let channel = try makeChannel(received, requirement: CallerRequirement(requirement: try #require(requirement)))
+        defer { channel.stop() }
+        let reply = try JSONDecoder().decode(ChannelReply.self, from: await askThroughNC(channel.path))
+        #expect(reply.refusal == nil)
+        #expect(received.commands == [.mute(.on)])
+    }
+
+    /// Sends a request to mute through `nc`, and returns what came back.
+    private func askThroughNC(_ path: String) async -> Data {
+        await Task.detached { () -> Data in
+            let nc = Process()
+            nc.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+            nc.arguments = ["-U", "-w", "3", path]
+            let input = Pipe()
+            let output = Pipe()
+            nc.standardInput = input
+            nc.standardOutput = output
+            guard (try? nc.run()) != nil else { return Data() }
+            let request = try? JSONEncoder().encode(ChannelRequest.command(.mute(.on)))
+            input.fileHandleForWriting.write((request ?? Data()) + Data("\n".utf8))
+            let answer = output.fileHandleForReading.readDataToEndOfFile()
+            try? input.fileHandleForWriting.close()
+            nc.waitUntilExit()
+            return answer
+        }.value
+    }
+
+    /// Only this user can open the socket, and it goes when the channel stops.
+    @MainActor
+    @Test func theSocketIsTheUsersAlone() throws {
+        let channel = try makeChannel()
+        var info = stat()
+        #expect(stat(channel.path, &info) == 0)
+        #expect(info.st_mode & 0o777 == 0o600)
+        #expect(info.st_uid == getuid())
+        channel.stop()
+        #expect(!FileManager.default.fileExists(atPath: channel.path))
+    }
+
+    @Test func waitingForAnAnswerGivesUpWhenThereIsNone() async {
+        #expect(await ask(.status, timeout: 0.2) == nil)
+        #expect(CommandClient(name: name).requestStatus(timeout: 0.2) == nil)
     }
 
     @Test func theStatusReportsMemory() throws {
@@ -1754,33 +1860,6 @@ final class StubMenuHost: StatusMenuHost {
         #expect(CLI.describe(status).split(separator: "\n").contains("Last read of the display: 92 ms for 3 values"))
         status.lastReadValues = nil
         #expect(CLI.describe(status).split(separator: "\n").contains("Last read of the display: 92 ms"))
-    }
-
-    /// `DisplayKeys get` has the running app read the display, and gets what it answered.
-    @Test func hasTheAppReadAValue() async throws {
-        let received = Received()
-        let channel = CommandChannel(
-            namespace: namespace,
-            handlers: .init(
-                onCommand: { _, _ in }, onShortcutsChanged: {}, onKeyTest: {}, onWatchKeys: { _ in },
-                readValues: { feature, answer in
-                    received.reads.append(feature)
-                    answer([.init(current: 13, maximum: 100)])
-                }, status: makeStatus))
-        defer { channel.stop() }
-
-        let request = CommandClient(namespace: namespace).beginValueRequest(of: .volume)
-        defer { request.finish() }
-        await wait { request.answer != nil }
-        let values = try #require(request.answer)
-        #expect(received.reads == [.volume])
-        #expect(values.map(\.current) == [13] && values.map(\.maximum) == [100])
-    }
-
-    @Test func waitingForAnAnswerGivesUpWhenThereIsNone() {
-        let client = CommandClient(namespace: namespace)
-        #expect(client.requestStatus(timeout: 0.2) == nil)
-        #expect(client.requestValues(of: .brightness, timeout: 0.2) == nil)
     }
 }
 
