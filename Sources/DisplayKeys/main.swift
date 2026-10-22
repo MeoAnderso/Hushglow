@@ -1,5 +1,7 @@
 import AppKit
 
+SettingsCarryOver.runIfNeeded()
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 if CLI.handles(arguments) {
     exit(CLI.run(arguments))

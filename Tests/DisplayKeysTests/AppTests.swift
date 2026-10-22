@@ -59,6 +59,45 @@ import Testing
         let info = try #require(NSDictionary(contentsOf: plist))
         #expect(info["CFBundleIdentifier"] as? String == AppInfo.bundleID)
     }
+
+    /// Until the identifier changes there is nothing to carry over, and nothing is touched.
+    @Test func settingsAreCarriedOverOnlyUnderANewIdentifier() {
+        #expect(AppInfo.bundleID == SettingsCarryOver.earlierBundleID)
+        #expect(!SettingsCarryOver.isNeeded)
+    }
+
+    /// Two settings suites of the tests' own stand for the earlier and the new identifier.
+    @Test func carryingOverCopiesTheEarlierSettingsOnce() throws {
+        let name = "local.DisplayKeys.tests.\(UUID().uuidString)"
+        let current = try #require(UserDefaults(suiteName: name))
+        defer { current.removePersistentDomain(forName: name) }
+        current.set("ctrl+alt+f1", forKey: "shortcut.brightness-down")
+
+        let earlier: [String: Any] = [
+            "shortcut.brightness-up": "ctrl+alt+f2", "shortcut.brightness-down": "ctrl+alt+down",
+            "welcomeShown": true, "indicator.style": "plain",
+        ]
+        #expect(SettingsCarryOver.carryOver(from: earlier, to: current) == 3)
+        #expect(current.string(forKey: "shortcut.brightness-up") == "ctrl+alt+f2")
+        #expect(current.bool(forKey: "welcomeShown"))
+        // What the new identifier already has is its own, and stays.
+        #expect(current.string(forKey: "shortcut.brightness-down") == "ctrl+alt+f1")
+
+        // Once done, a later run copies nothing, even what has been removed since.
+        current.removeObject(forKey: "indicator.style")
+        #expect(SettingsCarryOver.carryOver(from: earlier, to: current) == 0)
+        #expect(current.string(forKey: "indicator.style") == nil)
+    }
+
+    /// A first install has no earlier settings; it is still marked done.
+    @Test func carryingOverNothingIsDoneToo() throws {
+        let name = "local.DisplayKeys.tests.\(UUID().uuidString)"
+        let current = try #require(UserDefaults(suiteName: name))
+        defer { current.removePersistentDomain(forName: name) }
+        #expect(SettingsCarryOver.carryOver(from: nil, to: current) == 0)
+        #expect(SettingsCarryOver.carryOver(from: ["welcomeShown": true], to: current) == 0)
+        #expect(!current.bool(forKey: "welcomeShown"))
+    }
 }
 
 // MARK: Indicator

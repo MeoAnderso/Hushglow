@@ -166,3 +166,7 @@ that name automatically, and `CODESIGN_IDENTITY` selects another one.
 
 Quit the app, turn off Launch at Login, delete `/Applications/DisplayKeys.app`, remove it
 from that list in System Settings, and run `defaults delete local.DisplayKeys`.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

@@ -22,6 +22,39 @@ enum AppInfo {
     }
 }
 
+/// The settings are kept under the bundle identifier, so a new identifier would start the app
+/// with none. The first run under a new one copies them over from the identifier the app had
+/// before. While the identifier is unchanged this does nothing.
+enum SettingsCarryOver {
+    /// The identifier every build had until the app is signed with Developer ID.
+    static let earlierBundleID = "local.DisplayKeys"
+    private static let doneKey = "settingsCarriedOver"
+
+    static var isNeeded: Bool { AppInfo.bundleID != earlierBundleID }
+
+    /// Before anything reads the settings, in the app and on the command line alike.
+    static func runIfNeeded() {
+        guard isNeeded else { return }
+        let copied = carryOver(
+            from: UserDefaults.standard.persistentDomain(forName: earlierBundleID), to: AppInfo.defaults)
+        if copied > 0 { AppInfo.defaults.synchronize() }
+    }
+
+    /// Copies the earlier settings into `current` where it has no value of its own, once; later
+    /// calls copy nothing. Returns how many settings were copied.
+    @discardableResult
+    static func carryOver(from earlier: [String: Any]?, to current: UserDefaults) -> Int {
+        guard !current.bool(forKey: doneKey) else { return 0 }
+        var copied = 0
+        for (key, value) in earlier ?? [:] where current.object(forKey: key) == nil {
+            current.set(value, forKey: key)
+            copied += 1
+        }
+        current.set(true, forKey: doneKey)
+        return copied
+    }
+}
+
 /// What the app calls the keyboard's own brightness, volume and mute keys, and the choice of
 /// being asked about them again, so that the menu, the notices, Settings and the command line
 /// all say the same.
