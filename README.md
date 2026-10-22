@@ -150,6 +150,9 @@ CODESIGN_IDENTITY="Developer ID Application: <name> (<team>)" NOTARY_PROFILE=<pr
 The profile holds the notarization credentials in the keychain; create it once with
 `xcrun notarytool store-credentials <profile>`.
 
+Every push to GitHub is built without warnings, tested, linted and built into the app by
+[continuous integration](.github/workflows/ci.yml); only the pictures are left to a person.
+
 Running the tests with `PREVIEW_DIR` set to a folder also writes pictures of the indicator,
 the menu, Settings, the notices and the helper there. That puts windows and a menu on screen
 for a few seconds.
