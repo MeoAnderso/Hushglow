@@ -1,6 +1,6 @@
 import AppKit
-import DisplayKeysCore
 import Foundation
+import HushglowCore
 import IOKit
 
 /// What a display's EDID says it is, as macOS keeps it for the display's framebuffer. The

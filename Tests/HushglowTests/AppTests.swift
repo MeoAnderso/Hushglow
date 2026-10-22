@@ -1,9 +1,9 @@
 import AppKit
-import DisplayKeysCore
 import Foundation
+import HushglowCore
 import Testing
 
-@testable import DisplayKeys
+@testable import Hushglow
 
 @Suite struct PrivateAPITests {
     /// Canary: fails on a macOS release that removes the private IOAVService functions.
@@ -57,7 +57,7 @@ import Testing
 @MainActor
 @Suite struct UpdatesTests {
     private let key = "pfIShU4dEXqPd5ObYNfDBiQWcXozk7estwzTnF9BamQ="
-    private let feed = "https://github.com/MeoAnderso/DisplayKeys/releases/latest/download/appcast.xml"
+    private let feed = "https://github.com/MeoAnderso/Hushglow/releases/latest/download/appcast.xml"
 
     /// Without the public key, Sparkle cannot tell a real update from a forged one while the
     /// app is ad-hoc signed, so the updater stays off.
@@ -155,15 +155,16 @@ import Testing
         #expect(ListFormatter.joinedInAppLanguage(["LG"]) == "LG")
     }
 
-    /// Until the identifier changes there is nothing to carry over, and nothing is touched.
-    @Test func settingsAreCarriedOverOnlyUnderANewIdentifier() {
-        #expect(AppInfo.bundleID == SettingsCarryOver.earlierBundleID)
-        #expect(!SettingsCarryOver.isNeeded)
+    /// The app was DisplayKeys, under `local.DisplayKeys`; its settings come over once.
+    @Test func settingsAreCarriedOverFromTheEarlierIdentifier() {
+        #expect(SettingsCarryOver.earlierBundleID == "local.DisplayKeys")
+        #expect(AppInfo.bundleID == "io.github.meoanderso.Hushglow")
+        #expect(SettingsCarryOver.isNeeded)
     }
 
     /// Two settings suites of the tests' own stand for the earlier and the new identifier.
     @Test func carryingOverCopiesTheEarlierSettingsOnce() throws {
-        let name = "local.DisplayKeys.tests.\(UUID().uuidString)"
+        let name = "Hushglow.tests.\(UUID().uuidString)"
         let current = try #require(UserDefaults(suiteName: name))
         defer { current.removePersistentDomain(forName: name) }
         current.set("ctrl+alt+f1", forKey: "shortcut.brightness-down")
@@ -205,7 +206,7 @@ import Testing
 
     /// A first install has no earlier settings; it is still marked done.
     @Test func carryingOverNothingIsDoneToo() throws {
-        let name = "local.DisplayKeys.tests.\(UUID().uuidString)"
+        let name = "Hushglow.tests.\(UUID().uuidString)"
         let current = try #require(UserDefaults(suiteName: name))
         defer { current.removePersistentDomain(forName: name) }
         #expect(SettingsCarryOver.carryOver(from: nil, to: current) == 0)
@@ -1363,12 +1364,12 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         let parts = descendants(of: content)
         #expect(parts.contains { $0 is AppIconDragView })
         let texts = parts.compactMap { ($0 as? NSTextField)?.stringValue }
-        #expect(texts.contains("Drag DisplayKeys into the list above"))
+        #expect(texts.contains("Drag Hushglow into the list above"))
         // Inside the capsule nothing overlaps either.
         let caption = parts.first { type(of: $0) == NSView.self && $0.subviews.first is NSStackView }
         #expect(caption.map(hasLayoutFault) == false)
         let buttons = parts.compactMap { $0 as? NSButton }
-        #expect(buttons.compactMap { $0.accessibilityLabel() }.sorted() == ["Close", "Other ways to add DisplayKeys"])
+        #expect(buttons.compactMap { $0.accessibilityLabel() }.sorted() == ["Close", "Other ways to add Hushglow"])
 
         helper.addWithoutDragging()
         #expect(asked == 1)
@@ -1793,7 +1794,7 @@ final class StubMenuHost: StatusMenuHost {
         let plain = StatusMenu.icon(muted: false)
         let muted = StatusMenu.icon(muted: true)
         #expect(plain.isTemplate && muted.isTemplate && plain.size == muted.size)
-        #expect(muted.accessibilityDescription == "DisplayKeys, display muted")
+        #expect(muted.accessibilityDescription == "Hushglow, display muted")
 
         func inked(_ image: NSImage) throws -> [Bool] {
             let scale: CGFloat = 4
@@ -1843,7 +1844,7 @@ final class StubMenuHost: StatusMenuHost {
         // The display under control is named, which need not be the first screen.
         #expect(controls.statusLine.title == "Controlling PANEL 27")
         // And the version, which nothing else in the interface shows.
-        #expect(controls.items.contains { $0.title == "DisplayKeys \(AppInfo.version)" && !$0.isEnabled })
+        #expect(controls.items.contains { $0.title == "Hushglow \(AppInfo.version)" && !$0.isEnabled })
 
         host.displayState = nil
         controls.update()
@@ -1953,7 +1954,7 @@ final class StubMenuHost: StatusMenuHost {
 @Suite struct CommandChannelTests {
     /// A channel of the tests' own, so that they never reach an installed copy of the app. The
     /// name is short, since a socket's path has room for about a hundred bytes.
-    private let name = "dk-test-\(UUID().uuidString.prefix(8))"
+    private let name = "hg-test-\(UUID().uuidString.prefix(8))"
 
     @MainActor
     private final class Received {
@@ -2055,7 +2056,7 @@ final class StubMenuHost: StatusMenuHost {
         #expect(status.watchedKeys == ["key f11"])
     }
 
-    /// `DisplayKeys get` has the running app read the display, and gets what it answered.
+    /// `Hushglow get` has the running app read the display, and gets what it answered.
     @MainActor
     @Test func hasTheAppReadAValue() async throws {
         let received = Received()

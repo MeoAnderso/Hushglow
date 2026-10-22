@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import DisplayKeysCore
+@testable import HushglowCore
 
 @Suite struct DDCTests {
     @Test func encodesRequests() {

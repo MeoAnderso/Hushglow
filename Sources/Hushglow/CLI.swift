@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 import ServiceManagement
 
 /// Command-line front end. Commands and readings go through the running app when there is one,
@@ -15,21 +15,21 @@ enum CLI {
 
     private static let usage = """
         Usage:
-          DisplayKeys                                   run the menu bar app
-          DisplayKeys step brightness|volume|contrast up|down [--fine] [--display <n>]
-          DisplayKeys set brightness|volume|contrast <0-100> [--display <n>]
-          DisplayKeys mute [toggle|on|off] [--display <n>]   n as numbered by status; every display without it
-          DisplayKeys input dp1|dp2|hdmi1|hdmi2|usbc [--display <n>]
-          DisplayKeys get brightness|volume|mute|contrast|input
-          DisplayKeys shortcut                          list shortcuts
-          DisplayKeys shortcut <action> <keys|none|default>   for example: brightness-up ctrl+alt+up
-          DisplayKeys shortcut quarter-steps on|off|cmd|shift|alt|ctrl
+          Hushglow                                   run the menu bar app
+          Hushglow step brightness|volume|contrast up|down [--fine] [--display <n>]
+          Hushglow set brightness|volume|contrast <0-100> [--display <n>]
+          Hushglow mute [toggle|on|off] [--display <n>]   n as numbered by status; every display without it
+          Hushglow input dp1|dp2|hdmi1|hdmi2|usbc [--display <n>]
+          Hushglow get brightness|volume|mute|contrast|input
+          Hushglow shortcut                          list shortcuts
+          Hushglow shortcut <action> <keys|none|default>   for example: brightness-up ctrl+alt+up
+          Hushglow shortcut quarter-steps on|off|cmd|shift|alt|ctrl
                                                         also register each stepping shortcut with that
                                                         modifier added, Cmd unless another is named
-          DisplayKeys status                            what the running app sees and has received
-          DisplayKeys watch-keys [seconds]              show which special keys reach the app
-          DisplayKeys doctor [--write-test] [--key-test]   check the display connection and the key path
-          DisplayKeys help                              show this
+          Hushglow status                            what the running app sees and has received
+          Hushglow watch-keys [seconds]              show which special keys reach the app
+          Hushglow doctor [--write-test] [--key-test]   check the display connection and the key path
+          Hushglow help                              show this
         """
 
     /// Whether the arguments are meant for the command line and not for the app. No arguments

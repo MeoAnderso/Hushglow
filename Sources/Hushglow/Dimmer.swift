@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// Dims screens below their displays' lowest brightness, with a black window over each that
 /// lets every click through. The window is left out of screenshots and recordings, which

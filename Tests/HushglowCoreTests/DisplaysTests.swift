@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import DisplayKeysCore
+@testable import HushglowCore
 
 /// A display that records what it is asked, and can be changed behind the app's back.
 private final class FakeTransport: DisplayTransport, @unchecked Sendable {

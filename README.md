@@ -1,15 +1,25 @@
-# DisplayKeys
+# Hushglow
 
-<img src="docs/app-icon.png" width="96" alt="DisplayKeys icon">
+<img src=".github/app-icon.png" width="96" alt="Hushglow icon">
 
-A small native macOS menu bar app that controls an external monitor's brightness and volume
-over DDC/CI, from the keyboard, with an on-screen indicator. Written for an external display on
-an Apple Silicon Mac; it should work with any display that speaks DDC/CI over USB-C or
-DisplayPort.
+A macOS menu bar app that controls the brightness, volume and mute of external displays over
+DDC/CI.
 
-![On-screen indicator](docs/osd-preview.png)
+- The keyboard's brightness, volume and mute keys, or shortcuts of your choice
+- An on-screen indicator for each change
+- Menu bar sliders per display, with contrast and input selection where the display has them
+- Several displays: the keys change the one under the pointer, or all of them
+- Dimming below the display's lowest brightness
+- Scrolling over the menu bar icon changes brightness
+- A command line for scripts
+- Updates through Sparkle
 
-How it is built, and what has been verified, is in [docs/DESIGN.md](docs/DESIGN.md).
+Requires an Apple silicon Mac with macOS 26 or later, and a display with DDC/CI switched on.
+HDMI works on some Macs only.
+
+To install, build it from source (see [Build and install](#build-and-install)).
+
+![On-screen indicator](.github/osd-preview.png)
 
 ## Using it
 
@@ -84,11 +94,11 @@ VoiceOver is told the new level once it settles.
 Shortcuts can also be set from the command line:
 
 ```bash
-DisplayKeys shortcut                            # list
-DisplayKeys shortcut volume-up ctrl+alt+right   # set
-DisplayKeys shortcut mute none                  # remove
-DisplayKeys shortcut brightness-up default      # reset
-DisplayKeys shortcut quarter-steps on           # or off, or cmd, shift, alt or ctrl
+Hushglow shortcut                            # list
+Hushglow shortcut volume-up ctrl+alt+right   # set
+Hushglow shortcut mute none                  # remove
+Hushglow shortcut brightness-up default      # reset
+Hushglow shortcut quarter-steps on           # or off, or cmd, shift, alt or ctrl
 ```
 
 Actions are `brightness-up`, `brightness-down`, `volume-up`, `volume-down` and `mute`. The
@@ -105,17 +115,17 @@ A build without the key, such as one you make yourself, never looks for updates.
 ### Scripts
 
 ```bash
-DisplayKeys step brightness up      # or down; add --fine for a quarter step
-DisplayKeys set volume 30           # percent
-DisplayKeys mute                    # toggle; or: mute on, mute off
-DisplayKeys set brightness 70 --display 2   # one display, numbered as status lists them
-DisplayKeys set contrast 60
-DisplayKeys input hdmi1             # or dp1, dp2, hdmi2, usbc: the display then shows that input
-DisplayKeys get brightness
+Hushglow step brightness up      # or down; add --fine for a quarter step
+Hushglow set volume 30           # percent
+Hushglow mute                    # toggle; or: mute on, mute off
+Hushglow set brightness 70 --display 2   # one display, numbered as status lists them
+Hushglow set contrast 60
+Hushglow input hdmi1             # or dp1, dp2, hdmi2, usbc: the display then shows that input
+Hushglow get brightness
 ```
 
-`DisplayKeys` here is `/Applications/DisplayKeys.app/Contents/MacOS/DisplayKeys`, and
-`DisplayKeys help` lists every command. A command it does not know gets the same list and
+`Hushglow` here is `/Applications/Hushglow.app/Contents/MacOS/Hushglow`, and
+`Hushglow help` lists every command. A command it does not know gets the same list and
 does not start the app. While the app is running these commands go through it, `get`
 included, so that only one program talks to the display at a time. The running app answers
 its own command line only: the one inside the same app, or from a build signed with the same
@@ -123,28 +133,27 @@ certificate. Another build of the app, such as one run from `.build`, is turned 
 
 ### When something does not respond
 
-- `DisplayKeys status` shows what the running app sees: its version and build, the display's
+- `Hushglow status` shows what the running app sees: its version and build, the display's
   values, how much memory the app uses, whether the keyboard's own keys are active, which
   shortcuts are registered, and how many key presses it has received and what the last one
   was.
-- `DisplayKeys watch-keys` shows, for ten seconds, which special keys reach the app. Use it
+- `Hushglow watch-keys` shows, for ten seconds, which special keys reach the app. Use it
   to find out what a keyboard's volume keys actually send. Ordinary typing is not recorded,
   and the indicator says on screen that a watch is running for as long as it runs.
-- `DisplayKeys doctor` checks the connection to the display. `--write-test` also changes
+- `Hushglow doctor` checks the connection to the display. `--write-test` also changes
   brightness and volume by one unit and restores them; `--key-test` sends a simulated volume
   key through the system to prove that such keys reach the app.
 - For a live trace of every key and shortcut the app receives:
-  `log stream --level debug --predicate 'subsystem == "local.DisplayKeys"'`
+  `log stream --level debug --predicate 'subsystem == "io.github.meoanderso.Hushglow"'`
 
 ## Build and install
 
 ```bash
 Scripts/install.sh       # builds, installs into /Applications and starts the app
-Scripts/build-app.sh     # only builds build/DisplayKeys.app
+Scripts/build-app.sh     # only builds build/Hushglow.app
 Scripts/release.sh       # also packs and signs it for an update, and writes the feed; --publish releases it
 swift test               # unit tests
 swift format lint --strict --recursive Sources Tests Scripts Package.swift
-swift Scripts/make-icon.swift   # redraws the icon's layers, only needed after changing the artwork
 ```
 
 The app runs on macOS 26 or later. Building it requires Xcode's Swift 6.2 toolchain or
@@ -185,7 +194,7 @@ builds from raising it. A build signed with a certificate keeps its access acros
 signed with the same certificate, and raises the subject only when the certificate changes.
 
 To skip even that, create a signing certificate once: in Keychain Access choose
-Certificate Assistant → Create a Certificate, name it `DisplayKeys Dev`, with Identity Type
+Certificate Assistant → Create a Certificate, name it `Hushglow Dev`, with Identity Type
 Self-Signed Root and Certificate Type Code Signing. The build script uses a certificate with
 that name automatically, and `CODESIGN_IDENTITY` selects another one.
 
@@ -219,8 +228,8 @@ in that language. The command line's own messages stay in English.
 
 ### Uninstalling
 
-Quit the app, turn off Launch at Login, delete `/Applications/DisplayKeys.app`, remove it
-from that list in System Settings, and run `defaults delete local.DisplayKeys`.
+Quit the app, turn off Launch at Login, delete `/Applications/Hushglow.app`, remove it
+from that list in System Settings, and run `defaults delete io.github.meoanderso.Hushglow`.
 
 ## Licence
 

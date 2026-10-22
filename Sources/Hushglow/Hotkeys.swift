@@ -1,6 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
-import DisplayKeysCore
+import HushglowCore
 
 /// What `KeyboardInput` needs from the global shortcuts. Tests stand in for it, so that they
 /// register nothing with macOS.
@@ -103,7 +103,7 @@ final class Hotkeys: NSObject, ShortcutRegistry {
         var interval: TimeInterval
     }
 
-    private static let signature: OSType = 0x444B_4559  // "DKEY"
+    private static let signature: OSType = 0x4847_4C57  // "HGLW"
     /// One unit of the system's Key Repeat setting; the fastest pace System Settings offers is two.
     static let shortestRepeatInterval: TimeInterval = 1.0 / 60
     /// The slowest pace System Settings offers is two seconds. Switched off, key repeat is

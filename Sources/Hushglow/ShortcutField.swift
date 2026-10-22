@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// Shows a shortcut and records a new one: click it, or focus it and press Space, then press
 /// the keys. Delete removes the shortcut and Esc cancels. While it waits for keys it shows the

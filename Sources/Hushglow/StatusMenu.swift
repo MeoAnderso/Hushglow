@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// A display under control, as the menu shows it.
 struct MenuDisplay: Equatable {

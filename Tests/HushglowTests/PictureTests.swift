@@ -1,9 +1,9 @@
 import AppKit
-import DisplayKeysCore
 import Foundation
+import HushglowCore
 import Testing
 
-@testable import DisplayKeys
+@testable import Hushglow
 
 // Tests that put windows or a menu on screen to photograph them. They run only when
 // PREVIEW_DIR is set.
@@ -376,7 +376,7 @@ extension GlassWindowTests {
         application.appearance = nil
     }
 
-    /// The picture the README shows, docs/osd-preview.png: every state of the indicator on
+    /// The picture the README shows, .github/osd-preview.png: every state of the indicator on
     /// glass, over the dusk sky of the app's icon. Runs only when PREVIEW_DIR is set.
     @Test func pictureOfEveryState() async throws {
         guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }

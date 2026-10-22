@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>DisplayKeys</string>
+    <string>Hushglow</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>local.DisplayKeys</string>
+    <string>io.github.meoanderso.Hushglow</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>DisplayKeys</string>
+    <string>Hushglow</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -35,6 +35,6 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>SUFeedURL</key>
-    <string>https://github.com/MeoAnderso/DisplayKeys/releases/latest/download/appcast.xml</string>
+    <string>https://github.com/MeoAnderso/Hushglow/releases/latest/download/appcast.xml</string>
 </dict>
 </plist>

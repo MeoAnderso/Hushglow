@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 import CryptoKit
-import DisplayKeysCore
+import HushglowCore
 import Security
 import notify
 

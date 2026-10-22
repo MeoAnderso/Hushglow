@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// A short recording, started by the user, of the special keys that reach the app. It answers
 /// the question "what does this keyboard's volume key actually send?".

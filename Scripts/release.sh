@@ -61,9 +61,9 @@ fi
 
 Scripts/build-app.sh
 
-archive="build/DisplayKeys-$version.zip"
+archive="build/Hushglow-$version.zip"
 rm -f "$archive"
-ditto -c -k --sequesterRsrc --keepParent build/DisplayKeys.app "$archive"
+ditto -c -k --sequesterRsrc --keepParent build/Hushglow.app "$archive"
 # The signature and length attributes of the feed's enclosure, as Sparkle writes them.
 enclosure=$("$tools/sign_update" ${key_file[@]+"${key_file[@]}"} "$archive")
 
@@ -71,16 +71,16 @@ cat >build/appcast.xml <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
-        <title>DisplayKeys</title>
+        <title>Hushglow</title>
         <link>https://github.com/$repository</link>
         <item>
-            <title>DisplayKeys $version</title>
+            <title>Hushglow $version</title>
             <pubDate>$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S +0000")</pubDate>
             <sparkle:version>$build</sparkle:version>
             <sparkle:shortVersionString>$version</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>$minimum</sparkle:minimumSystemVersion>
             <link>https://github.com/$repository/releases/tag/$tag</link>
-            <enclosure url="https://github.com/$repository/releases/download/$tag/DisplayKeys-$version.zip"
+            <enclosure url="https://github.com/$repository/releases/download/$tag/Hushglow-$version.zip"
                 type="application/octet-stream" $enclosure />
         </item>
     </channel>
@@ -91,7 +91,7 @@ echo "Prepared $archive and build/appcast.xml for $tag (build $build)."
 
 if $publish; then
     gh release create "$tag" "$archive" build/appcast.xml --repo "$repository" \
-        --target "$(git rev-parse HEAD)" --title "DisplayKeys $version" --generate-notes
+        --target "$(git rev-parse HEAD)" --title "Hushglow $version" --generate-notes
     echo "Published https://github.com/$repository/releases/tag/$tag"
 else
     echo "Run Scripts/release.sh --publish to create the release on GitHub."

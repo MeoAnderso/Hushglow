@@ -1,10 +1,10 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 enum AppInfo {
-    static let name = "DisplayKeys"
+    static let name = "Hushglow"
     /// Must match CFBundleIdentifier in Resources/Info.plist; a test checks it.
-    static let bundleID = "local.DisplayKeys"
+    static let bundleID = "io.github.meoanderso.Hushglow"
 
     static var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"

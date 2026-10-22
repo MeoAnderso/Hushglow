@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// A slider for a menu row, made of layers, that tracks the mouse itself.
 ///

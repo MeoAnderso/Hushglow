@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// Tells VoiceOver about level changes, which the on-screen indicator only shows. It speaks
 /// once the level has settled, so holding a key does not produce a stream of announcements.

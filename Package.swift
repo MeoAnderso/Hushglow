@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "DisplayKeys",
+    name: "Hushglow",
     platforms: [.macOS("26.0")],
     dependencies: [
         // The updater: the one dependency, at an exact version so that every build has the same.
@@ -10,11 +10,11 @@ let package = Package(
     ],
     targets: [
         // Pure logic with no AppKit or IOKit dependency, so it is unit-testable.
-        .target(name: "DisplayKeysCore"),
+        .target(name: "HushglowCore"),
         .executableTarget(
-            name: "DisplayKeys",
-            dependencies: ["DisplayKeysCore", .product(name: "Sparkle", package: "Sparkle")]),
-        .testTarget(name: "DisplayKeysCoreTests", dependencies: ["DisplayKeysCore"]),
-        .testTarget(name: "DisplayKeysTests", dependencies: ["DisplayKeys", "DisplayKeysCore"]),
+            name: "Hushglow",
+            dependencies: ["HushglowCore", .product(name: "Sparkle", package: "Sparkle")]),
+        .testTarget(name: "HushglowCoreTests", dependencies: ["HushglowCore"]),
+        .testTarget(name: "HushglowTests", dependencies: ["Hushglow", "HushglowCore"]),
     ]
 )

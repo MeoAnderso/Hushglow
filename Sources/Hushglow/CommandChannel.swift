@@ -1,9 +1,9 @@
 import Darwin
-import DisplayKeysCore
 import Foundation
+import HushglowCore
 import Security
 
-/// What the running app reports about itself to `DisplayKeys status` and `doctor`.
+/// What the running app reports about itself to `Hushglow status` and `doctor`.
 struct AppStatus: Codable {
     struct Level: Codable {
         var current: Int

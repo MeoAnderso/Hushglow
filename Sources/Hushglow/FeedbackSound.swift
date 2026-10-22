@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// The sound macOS plays when a volume key changes the volume and "Play feedback when volume
 /// is changed" is on in System Settings → Sound. The app plays the same sound, from the same

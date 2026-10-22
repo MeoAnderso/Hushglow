@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 import Synchronization
 
 /// Intercepts the keyboard's own brightness, volume and mute keys with a session event tap.

@@ -6,8 +6,9 @@ import AppKit
 /// alert.
 ///
 /// It goes with the Settings window, not with whichever app is in front, and goes away when
-/// access is granted, when it is closed, or when the window has been gone for a while. How it
-/// follows the window and why it looks as it does is in docs/DESIGN.md, under Liquid Glass.
+/// access is granted, when it is closed, or when the window has been gone for a while. It
+/// appears in the same moment as that window and sits just above it in the window order, so
+/// that it goes behind other apps together with it.
 @MainActor
 final class PermissionHelper: NSObject {
     /// The size of what is seen: the arrow, the round glass and the caption.

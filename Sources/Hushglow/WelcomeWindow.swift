@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// A short notice shown on first launch, and again when an update leaves the keyboard's own
 /// keys switched off. It comes before any permission step and says why the app asks.

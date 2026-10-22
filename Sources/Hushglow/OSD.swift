@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// What decides how the indicator's capsule is built: the user's choice of style and the
 /// system's accessibility options. It is evaluated each time the indicator is shown.

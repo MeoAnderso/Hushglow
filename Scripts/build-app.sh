@@ -1,10 +1,10 @@
 #!/bin/bash
-# Builds build/DisplayKeys.app from the Swift package.
+# Builds build/Hushglow.app from the Swift package.
 #
 # Signing decides whether Accessibility access survives a rebuild. macOS ties the permission
 # to the app's signature: with a certificate the signature stays the same across builds;
 # without one the app is ad-hoc signed and every rebuild looks like a different app.
-# The certificate is taken from CODESIGN_IDENTITY, else one named "DisplayKeys Dev" if it
+# The certificate is taken from CODESIGN_IDENTITY, else one named "Hushglow Dev" if it
 # exists in the keychain (see README, "Turning on the brightness and volume keys, and again
 # after a rebuild").
 #
@@ -15,8 +15,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 identity="${CODESIGN_IDENTITY:-}"
-if [ -z "$identity" ] && security find-identity -p codesigning 2>/dev/null | grep -q '"DisplayKeys Dev"'; then
-    identity="DisplayKeys Dev"
+if [ -z "$identity" ] && security find-identity -p codesigning 2>/dev/null | grep -q '"Hushglow Dev"'; then
+    identity="Hushglow Dev"
 fi
 notary_profile="${NOTARY_PROFILE:-}"
 # Only Developer ID signatures can be notarized; find that out before building.
@@ -27,12 +27,12 @@ fi
 
 swift build -c release
 
-app="build/DisplayKeys.app"
+app="build/Hushglow.app"
 bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Resources/Info.plist)
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp .build/release/DisplayKeys "$app/Contents/MacOS/DisplayKeys"
-strip -x "$app/Contents/MacOS/DisplayKeys"
+cp .build/release/Hushglow "$app/Contents/MacOS/Hushglow"
+strip -x "$app/Contents/MacOS/Hushglow"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 
 # Sparkle, the updater, goes where a bundled framework belongs, and the executable is told to
@@ -42,7 +42,7 @@ framework="$app/Contents/Frameworks/Sparkle.framework"
 mkdir -p "$app/Contents/Frameworks"
 ditto .build/release/Sparkle.framework "$framework"
 rm -rf "$framework/Versions/B/XPCServices" "$framework/XPCServices"
-install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/DisplayKeys"
+install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/Hushglow"
 
 # The text in other languages, from the string catalog: one folder per language it has been
 # translated into. English is the code's own, and its folder says that the app has it.
@@ -92,7 +92,7 @@ if [ -z "$identity" ]; then
 fi
 
 if [ -n "$notary_profile" ]; then
-    archive="build/DisplayKeys-notarize.zip"
+    archive="build/Hushglow-notarize.zip"
     ditto -c -k --keepParent "$app" "$archive"
     echo "Notarizing with the keychain profile \"$notary_profile\"; this can take a few minutes."
     result="build/notarization.json"

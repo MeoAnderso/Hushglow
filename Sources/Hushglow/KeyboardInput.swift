@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 
 /// Everything that comes from the keyboard: the keyboard's own media keys (which need
 /// Accessibility access) and the global shortcuts (which do not).

@@ -1,9 +1,9 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 import os
 
 /// View lifecycle events with:
-/// log stream --level debug --predicate 'subsystem == "local.DisplayKeys"'
+/// log stream --level debug --predicate 'subsystem == "io.github.meoanderso.Hushglow"'
 let log = Logger(subsystem: AppInfo.bundleID, category: "app")
 
 /// Wires the pieces together. Everything is event-driven: in the steady state there are no

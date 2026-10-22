@@ -1,5 +1,5 @@
 import AppKit
-import DisplayKeysCore
+import HushglowCore
 import ServiceManagement
 
 /// What the Settings window needs from the app.
