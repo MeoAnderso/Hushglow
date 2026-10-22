@@ -243,8 +243,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         return displays?.controlled.first { $0.identity?.screen == screen }
     }
 
-    /// Starts a key watch. Any process on this Mac can ask for one over the command channel,
-    /// so the indicator says that one is running for as long as it runs.
+    /// Starts a key watch, which only the app's own command line can ask for. The indicator
+    /// says that one is running for as long as it runs, so that one never runs unseen.
     private func watchKeys(for seconds: TimeInterval) {
         guard keyboard.watch.start(for: seconds) else { return }
         osd.hold(.watchingKeys)
