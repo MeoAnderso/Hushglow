@@ -462,11 +462,11 @@ private final class MenuSession: NSObject {
         menu.autoenablesItems = false
         menu.appearance = NSAppearance(named: appearance)
         controls.update()
-        menu.items =
-            controls.items + [
-                .separator(), NSMenuItem(title: "Settings…", action: nil, keyEquivalent: ","),
-                NSMenuItem(title: "Quit \(AppInfo.name)", action: nil, keyEquivalent: "q"),
-            ]
+        // The menu's own last items, for a build that can update itself. They are pictured,
+        // never chosen: none of them acts.
+        let fixed = StatusMenu.fixedItems(target: nil, updates: true)
+        for item in fixed { item.action = nil }
+        menu.items = controls.items + fixed
     }
 
     /// Returns when the menu has closed again.

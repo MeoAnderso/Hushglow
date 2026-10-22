@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     private let dimmer = Dimmer()
     private let keyboard = KeyboardInput()
     private let systemEvents = SystemEvents()
+    private let updates = Updates()
     private var statusMenu: StatusMenu?
     private var channel: CommandChannel?
     private var settingsWindow: SettingsWindow?
@@ -51,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         startDisplays()
+        // Before the menu is built, which offers to check when there are updates to check for.
+        updates.start()
         // Before any shortcut is registered.
         ShortcutSettings.settleDefaultSet(isNewInstall: !AppInfo.defaults.bool(forKey: Self.welcomeShownKey))
 
@@ -276,6 +279,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
 
     func refreshKeyboardAccess() {
         keyboard.updateKeyTap()
+    }
+
+    var updatesAreAvailable: Bool { updates.areAvailable }
+
+    func checkForUpdates() {
+        updates.checkNow()
+    }
+
+    var checksForUpdatesAutomatically: Bool? {
+        get { updates.checksAutomatically }
+        set { updates.checksAutomatically = newValue }
     }
 
     func showSettings() {

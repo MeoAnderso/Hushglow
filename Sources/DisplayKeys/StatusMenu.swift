@@ -29,6 +29,9 @@ protocol StatusMenuHost: AnyObject {
     func refreshKeyboardAccess()
     func enableKeyboardKeys()
     func showSettings()
+    /// Whether this build can update itself, which puts "Check for Updates…" in the menu.
+    var updatesAreAvailable: Bool { get }
+    func checkForUpdates()
     /// The menu has opened or closed.
     func menuDidChange(isOpen: Bool)
 }
@@ -157,13 +160,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     /// The items at the end of the menu, which never change.
-    private lazy var fixedItems: [NSMenuItem] = {
+    private lazy var fixedItems: [NSMenuItem] = Self.fixedItems(target: self, updates: host.updatesAreAvailable)
+
+    static func fixedItems(target: AnyObject?, updates: Bool) -> [NSMenuItem] {
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settingsItem.target = self
+        settingsItem.target = target
+        let updatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updatesItem.target = target
         let quitItem = NSMenuItem(
             title: "Quit \(AppInfo.name)", action: #selector(NSApplication.terminate), keyEquivalent: "q")
-        return [.separator(), settingsItem, quitItem]
-    }()
+        return [.separator(), settingsItem] + (updates ? [updatesItem] : []) + [quitItem]
+    }
 
     private func build(_ menu: NSMenu) -> MenuControls {
         let controls = MenuControls(host: host)
@@ -173,6 +180,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func showSettings() {
         host.showSettings()
+    }
+
+    @objc private func checkForUpdates() {
+        host.checkForUpdates()
     }
 }
 

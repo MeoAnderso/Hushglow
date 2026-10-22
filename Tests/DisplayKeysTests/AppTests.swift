@@ -54,6 +54,72 @@ import Testing
     }
 }
 
+@MainActor
+@Suite struct UpdatesTests {
+    private let key = "pfIShU4dEXqPd5ObYNfDBiQWcXozk7estwzTnF9BamQ="
+    private let feed = "https://github.com/MeoAnderso/DisplayKeys/releases/latest/download/appcast.xml"
+
+    /// Without the public key, Sparkle cannot tell a real update from a forged one while the
+    /// app is ad-hoc signed, so the updater stays off.
+    @Test func updatesNeedTheKeyAndASecureFeed() {
+        #expect(Updates.areConfigured(in: ["SUPublicEDKey": key, "SUFeedURL": feed]))
+        #expect(!Updates.areConfigured(in: ["SUFeedURL": feed]))
+        #expect(!Updates.areConfigured(in: ["SUPublicEDKey": "", "SUFeedURL": feed]))
+        #expect(!Updates.areConfigured(in: ["SUPublicEDKey": key, "SUFeedURL": "http://example.com/appcast.xml"]))
+        #expect(!Updates.areConfigured(in: ["SUPublicEDKey": key]))
+        #expect(!Updates.areConfigured(in: nil))
+    }
+
+    /// The feed is the latest release's appcast, which `Scripts/release.sh` uploads.
+    @Test func theFeedIsTheLatestRelease() throws {
+        let plist = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/Info.plist")
+        let info = try #require(NSDictionary(contentsOf: plist) as? [String: Any])
+        #expect(info["SUFeedURL"] as? String == feed)
+    }
+
+    /// The test process is not the app, and has no key: the updater does not start, so it
+    /// writes nothing and asks nothing.
+    @Test func doesNotStartWithoutTheKey() {
+        let updates = Updates()
+        updates.start()
+        #expect(!updates.areAvailable)
+        #expect(updates.checksAutomatically == nil)
+    }
+
+    @Test func theMenuOffersToCheckOnlyWhenThereAreUpdates() {
+        let with = StatusMenu.fixedItems(target: nil, updates: true).map(\.title)
+        let without = StatusMenu.fixedItems(target: nil, updates: false).map(\.title)
+        #expect(with == ["", "Settings…", "Check for Updates…", "Quit \(AppInfo.name)"])
+        #expect(without == ["", "Settings…", "Quit \(AppInfo.name)"])
+    }
+
+    /// The box in Settings shows only when there are updates, and passes its state on.
+    @Test func settingsShowsTheBoxOnlyWhenThereAreUpdates() throws {
+        let host = StubHost()
+        let settings = SettingsWindow(host: host)
+        let content = settings.makeContentView()
+        func box() throws -> NSButton {
+            try #require(
+                descendants(of: content).compactMap { $0 as? NSButton }
+                    .first { $0.title == "Check for updates automatically" })
+        }
+        #expect(try !box().isHidden && box().state == .on)
+        try box().performClick(nil)
+        #expect(host.checksForUpdatesAutomatically == false)
+
+        let without = StubHost()
+        without.checksForUpdatesAutomatically = nil
+        let other = SettingsWindow(host: without)
+        let otherContent = other.makeContentView()
+        let hidden = descendants(of: otherContent).compactMap { $0 as? NSButton }
+            .first { $0.title == "Check for updates automatically" }
+        #expect(hidden?.isHidden == true)
+        withExtendedLifetime((settings, other, host, without)) {}
+    }
+}
+
 @Suite struct BundleTests {
     @Test func bundleIdentifierMatchesInfoPlist() throws {
         let plist = URL(fileURLWithPath: #filePath)
@@ -318,6 +384,8 @@ final class StubHost: SettingsHost {
     func canRegister(_ shortcut: Shortcut) -> Bool { !refusesEverything }
     func previewIndicator() {}
     func dimmingChanged() {}
+    /// As a build that can update itself has it, so that the pictures show the box.
+    var checksForUpdatesAutomatically: Bool? = true
 }
 
 @MainActor
@@ -1348,6 +1416,9 @@ final class StubMenuHost: StatusMenuHost {
     func enableKeyboardKeys() {}
     func showSettings() {}
     func menuDidChange(isOpen: Bool) {}
+    var updatesAreAvailable = false
+    var updateChecks = 0
+    func checkForUpdates() { updateChecks += 1 }
 
     /// Each command leaves an object in the autorelease pool, as real handling does. How many
     /// were still there at the next command says whether the pool is emptied between events.

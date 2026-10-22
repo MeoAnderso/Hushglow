@@ -21,6 +21,8 @@ protocol SettingsHost: AnyObject {
     func previewIndicator()
     /// Dimming below the lowest brightness was switched on or off.
     func dimmingChanged()
+    /// Whether the app looks for updates by itself; nil when this build cannot update itself.
+    var checksForUpdatesAutomatically: Bool? { get set }
 }
 
 /// The Settings window: the indicator's look, the shortcuts, the keyboard's own keys and
@@ -54,6 +56,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private var loginBox: NSButton?
     private var keysChangePopup: NSPopUpButton?
     private var dimmingBox: NSButton?
+    private var updatesBox: NSButton?
     private var stylePopup: NSPopUpButton?
     private var positionPopup: NSPopUpButton?
     private var percentageBox: NSButton?
@@ -227,8 +230,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         self.keysChangePopup = keysChangePopup
         let dimmingBox = checkbox("Dim the screen below the display’s lowest brightness", #selector(dimmingChanged))
         self.dimmingBox = dimmingBox
+        let updatesBox = checkbox("Check for updates automatically", #selector(updatesChanged))
+        self.updatesBox = updatesBox
         let general = section(
-            "General", [form([("Keys change", [keysChangePopup])], spacing: 8), dimmingBox, loginBox])
+            "General", [form([("Keys change", [keysChangePopup])], spacing: 8), dimmingBox, loginBox, updatesBox])
 
         let restore = NSButton(title: "Restore Defaults", target: self, action: #selector(askToRestoreDefaults))
         let restoreRow = NSStackView()
@@ -286,6 +291,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         loginBox?.isEnabled = isInstalled
         loginBox?.title = isInstalled ? "Launch at login" : "Launch at login (move the app to Applications first)"
         loginBox?.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        let checksForUpdates = host.checksForUpdatesAutomatically
+        updatesBox?.isHidden = checksForUpdates == nil
+        updatesBox?.state = checksForUpdates == true ? .on : .off
         refreshMessage()
         // A line of text or a button that came or went changes the height the window needs.
         if let content { GlassPanel.fit(window, to: content) }
@@ -417,6 +425,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     @objc private func dimmingChanged(_ sender: NSButton) {
         DimmingSettings.isOn = sender.state == .on
         host.dimmingChanged()
+    }
+
+    @objc private func updatesChanged(_ sender: NSButton) {
+        host.checksForUpdatesAutomatically = sender.state == .on
     }
 
     @objc private func turnOnKeys() {

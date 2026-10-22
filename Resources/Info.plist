@@ -34,5 +34,7 @@
     <string>Copyright © 2026 Vasco Patricio. Released under the MIT licence.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/MeoAnderso/DisplayKeys/releases/latest/download/appcast.xml</string>
 </dict>
 </plist>

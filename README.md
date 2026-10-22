@@ -75,6 +75,7 @@ Choose Settings… in the menu.
   with a black layer over it that clicks go through and screenshots leave out. Brightness up
   takes it off first, and so does moving the slider.
 - **Launch at login.**
+- **Check for updates automatically**, in a build that can update itself (see Updates).
 
 The indicator follows the system's accessibility settings: a solid capsule with Reduce
 Transparency, a strong outline with Increase Contrast, and no movement with Reduce Motion.
@@ -92,6 +93,14 @@ DisplayKeys shortcut quarter-steps on           # or off, or cmd, shift, alt or 
 
 Actions are `brightness-up`, `brightness-down`, `volume-up`, `volume-down` and `mute`. The
 command reports whether the running app could register the shortcut.
+
+### Updates
+
+A build that carries the key its updates are signed with looks for a new release of this
+repository once a day, if you say yes when it asks on its second launch, and its menu has
+Check for Updates…. The updater is [Sparkle](https://sparkle-project.org). Each update is
+signed with a key only the maintainer holds, and the app installs only what that key signed.
+A build without the key, such as one you make yourself, never looks for updates.
 
 ### Scripts
 
@@ -132,13 +141,15 @@ certificate. Another build of the app, such as one run from `.build`, is turned 
 ```bash
 Scripts/install.sh       # builds, installs into /Applications and starts the app
 Scripts/build-app.sh     # only builds build/DisplayKeys.app
+Scripts/release.sh       # also packs and signs it for an update, and writes the feed; --publish releases it
 swift test               # unit tests
 swift format lint --strict --recursive Sources Tests Scripts Package.swift
 swift Scripts/make-icon.swift   # redraws the icon's layers, only needed after changing the artwork
 ```
 
 The app runs on macOS 26 or later. Building it requires Xcode's Swift 6.2 toolchain or
-later. There are no third-party dependencies.
+later. The one third-party dependency is Sparkle, the updater, which Swift Package Manager
+fetches at an exact version.
 
 Every build runs with the hardened runtime. With a Developer ID certificate, the build script
 also has Apple notarize the app and staples the ticket to it:
@@ -177,6 +188,25 @@ To skip even that, create a signing certificate once: in Keychain Access choose
 Certificate Assistant → Create a Certificate, name it `DisplayKeys Dev`, with Identity Type
 Self-Signed Root and Certificate Type Code Signing. The build script uses a certificate with
 that name automatically, and `CODESIGN_IDENTITY` selects another one.
+
+### Releasing
+
+Once, create the update key and give the app its public half:
+
+```bash
+.build/artifacts/sparkle/Sparkle/bin/generate_keys
+```
+
+It keeps the private key in your login keychain and prints the public key; put that in
+`Resources/Info.plist` as `SUPublicEDKey`. Keep the private key safe (`generate_keys -x`
+exports it): without it no installed copy can be updated again.
+
+For each release, raise `CFBundleShortVersionString` and `CFBundleVersion` in
+`Resources/Info.plist`, commit, and run `Scripts/release.sh`. It builds the app, signs the
+archive with the key from the keychain and writes `build/appcast.xml`; `--publish` then
+creates the release on GitHub with both files, and the app's feed address points at the
+latest release. Until the app is notarized, macOS refuses to open a downloaded copy at first;
+in System Settings → Privacy & Security, choose Open Anyway.
 
 ### Uninstalling
 
