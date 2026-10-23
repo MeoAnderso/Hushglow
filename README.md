@@ -223,10 +223,12 @@ It keeps the private key in your login keychain and prints the public key; put t
 (`generate_keys -x <file>` exports it): without it no installed copy can be updated again.
 
 For each release, raise `CFBundleShortVersionString` and `CFBundleVersion` in
-`Resources/Info.plist`, commit, and run `Scripts/release.sh`. It builds the app, signs the
-archive with the key from the keychain and writes `build/appcast.xml`; `--publish` then
-creates the release on GitHub with both files, and the app's feed address points at the
-latest release. Until the app is notarized, macOS refuses to open a downloaded copy at first;
+`Resources/Info.plist`, commit, push, and run `Scripts/release.sh`. It builds the app, signed
+ad hoc unless `CODESIGN_IDENTITY` names a certificate, signs the archive with the key from the
+keychain and writes `build/appcast.xml`; `--publish` then creates the release on GitHub with
+both files, and the app's feed address points at the latest release. It turns down a build
+number no higher than the latest release's, which Sparkle would offer nobody, and a commit
+GitHub does not have. Until the app is notarized, macOS refuses to open a downloaded copy at first;
 in System Settings → Privacy & Security, choose Open Anyway.
 
 ### Translating

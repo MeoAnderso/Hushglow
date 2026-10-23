@@ -6,7 +6,7 @@
 # without one the app is ad-hoc signed and every rebuild looks like a different app.
 # The certificate is taken from CODESIGN_IDENTITY, else one named "Hushglow Dev" if it
 # exists in the keychain (see README, "Turning on the brightness and volume keys, and again
-# after a rebuild").
+# after a rebuild"). CODESIGN_IDENTITY=- asks for an ad-hoc signature whatever the keychain holds.
 #
 # Every build runs with the hardened runtime, as a notarized one must. With a Developer ID
 # certificate and NOTARY_PROFILE, the name of a keychain profile made with
@@ -15,8 +15,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 identity="${CODESIGN_IDENTITY:-}"
-if [ -z "$identity" ] && security find-identity -p codesigning 2>/dev/null | grep -q '"Hushglow Dev"'; then
-    identity="Hushglow Dev"
+if [ "$identity" = "-" ]; then
+    identity=""
+elif [ -z "$identity" ]; then
+    # Read whole first: `grep -q` stopping early could make the listing fail under pipefail.
+    identities=$(security find-identity -p codesigning 2>/dev/null || true)
+    [[ "$identities" == *'"Hushglow Dev"'* ]] && identity="Hushglow Dev"
 fi
 notary_profile="${NOTARY_PROFILE:-}"
 # Only Developer ID signatures can be notarized; find that out before building.

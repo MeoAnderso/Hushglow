@@ -6,7 +6,8 @@
 # The signing key is the one Sparkle's generate_keys keeps in the login keychain, whose public
 # half must be SUPublicEDKey in Resources/Info.plist. SPARKLE_KEY_FILE names a file holding a
 # private key instead, for trying the script out. CODESIGN_IDENTITY and NOTARY_PROFILE are
-# passed on to build-app.sh.
+# passed on to build-app.sh; without CODESIGN_IDENTITY a release is signed ad hoc, whatever
+# certificates the keychain holds, so that one release is signed as the last.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -48,6 +49,11 @@ elif [ "$("$tools/generate_keys" -p)" != "$public_key" ]; then
     exit 1
 fi
 
+if ! [[ "$build" =~ ^[0-9]+$ ]]; then
+    echo "CFBundleVersion in Resources/Info.plist is \"$build\"; Sparkle compares it as a whole number." >&2
+    exit 64
+fi
+
 if $publish; then
     if [ -n "$(git status --porcelain)" ]; then
         echo "Commit or set aside the changes first: a release is made from a commit." >&2
@@ -57,9 +63,21 @@ if $publish; then
         echo "$repository already has a release $tag; raise the version in Resources/Info.plist." >&2
         exit 1
     fi
+    # Sparkle offers an update only for a higher build number than the copy has.
+    published=$( (curl -fsSL "$feed" 2>/dev/null || true) | sed -n -E 's#.*<sparkle:version>([0-9]+)</sparkle:version>.*#\1#p' | head -n 1)
+    if [ -n "$published" ] && [ "$build" -le "$published" ]; then
+        echo "CFBundleVersion is $build, and the latest release is build $published; raise it in Resources/Info.plist." >&2
+        exit 1
+    fi
+    # The release is made from this commit, which GitHub has to have.
+    git fetch --quiet origin
+    if [ -z "$(git branch -r --contains HEAD)" ]; then
+        echo "Push this commit first: GitHub makes the release's tag from it." >&2
+        exit 1
+    fi
 fi
 
-Scripts/build-app.sh
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}" Scripts/build-app.sh
 
 archive="build/Hushglow-$version.zip"
 rm -f "$archive"
