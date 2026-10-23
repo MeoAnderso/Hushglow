@@ -273,7 +273,7 @@ extension GlassWindowTests {
 
     /// A picture of the bar part of the way between two levels. Nothing in this process moves
     /// it there: the view is not asked to draw and no timer of the app's runs. The indicator's
-    /// clock is slowed twenty times, so that the middle of an eighth of a second can be caught
+    /// clock is slowed fifty times, so that the middle of an eighth of a second can be caught
     /// whatever else the tests are doing. Runs only when PREVIEW_DIR is set.
     @Test(.onScreen) func theBarGlidesBetweenLevels() async throws {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -296,11 +296,13 @@ extension GlassWindowTests {
         try await Task.sleep(for: .milliseconds(600))
 
         let from = indicator.lit.bounds.width
-        indicator.layer?.speed = 0.05
+        indicator.layer?.speed = 0.02
         indicator.show(.level(Feedback(kind: .brightness, fraction: 1)), animated: true)
         let to = indicator.lit.bounds.width
         var caught: CGFloat?
-        for _ in 0..<200 where caught == nil {
+        // Polled for longer than the slowed glide lasts: the other picture tests can keep the
+        // main thread for seconds, and the glide went by unseen in one full run of them.
+        for _ in 0..<700 where caught == nil {
             try await Task.sleep(for: .milliseconds(10))
             let width = try #require(indicator.lit.presentation()).bounds.width
             if width > from + 20, width < to - 20 { caught = width }
