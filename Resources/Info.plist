@@ -36,5 +36,7 @@
     <string>NSApplication</string>
     <key>SUFeedURL</key>
     <string>https://github.com/MeoAnderso/Hushglow/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>37gmmERu1Ss94BUNacXfwJat4j/WiEIFPPAPjy4GDnY=</string>
 </dict>
 </plist>

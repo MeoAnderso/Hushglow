@@ -106,11 +106,12 @@ command reports whether the running app could register the shortcut.
 
 ### Updates
 
-A build that carries the key its updates are signed with looks for a new release of this
-repository once a day, if you say yes when it asks on its second launch, and its menu has
-Check for Updates…. The updater is [Sparkle](https://sparkle-project.org). Each update is
-signed with a key only the maintainer holds, and the app installs only what that key signed.
-A build without the key, such as one you make yourself, never looks for updates.
+Hushglow looks for a new release of this repository once a day, if you say yes when it asks
+on its second launch, and its menu has Check for Updates…. The updater is
+[Sparkle](https://sparkle-project.org). Each update is signed with a key only the maintainer
+holds, and the app installs only what that key signed; the public half is `SUPublicEDKey` in
+`Resources/Info.plist`. A fork that publishes updates of its own replaces it there, with the
+feed address beside it.
 
 ### Scripts
 
