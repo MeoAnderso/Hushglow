@@ -236,13 +236,53 @@ enum CLI {
         return succeed(seen.map { "  \($0)" }.joined(separator: "\n"))
     }
 
+    /// Checks the display connection and the key path. While the app runs, the display is read
+    /// by the app, as for `get`, so that two programs never talk to it at once; a write test
+    /// then waits for the app to be quit.
     private static func doctor(writeTest: Bool, keyTest: Bool) -> Int32 {
         print("\(AppInfo.name) \(AppInfo.version), macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         guard let io = IOAV.shared else {
             return fail("Display control functions: MISSING. This macOS removed the private IOAVService functions.")
         }
         print("Display control functions: available")
+        let appIsRunning = AppInfo.otherInstance != nil
+        var healthy = true
+        if !appIsRunning {
+            healthy = checkDisplays(io, writeTest: writeTest)
+        } else if writeTest {
+            print("Write test: skipped while \(AppInfo.name) is running; quit it to run one")
+        }
+        print("Launch at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off")")
 
+        guard appIsRunning else {
+            print("App: not running")
+            return healthy ? 0 : 1
+        }
+        let reply = client.ask(.status)
+        if let refusal = reply?.refusal {
+            print("App: running, but it did not answer: \(refusal)")
+            healthy = false
+        } else if let status = reply?.status {
+            print("App: running\n" + describe(status).split(separator: "\n").map { "  \($0)" }.joined(separator: "\n"))
+            healthy = healthy && looksHealthy(status)
+            if keyTest { healthy = self.keyTest(status) && healthy }
+        } else {
+            print("App: running, but it did not answer")
+            healthy = false
+        }
+        return healthy ? 0 : 1
+    }
+
+    /// Whether what the running app reports is as it should be: a display under control, and
+    /// every shortcut registered and free of macOS's own.
+    static func looksHealthy(_ status: AppStatus) -> Bool {
+        status.displayControlAvailable && (status.brightness != nil || status.volume != nil)
+            && status.shortcuts.allSatisfy { $0.registered && !$0.usedByMacOS }
+    }
+
+    /// Reads every external display directly, and with `writeTest` nudges and restores
+    /// brightness and volume; for when the app is not running. Returns whether all is well.
+    private static func checkDisplays(_ io: IOAV, writeTest: Bool) -> Bool {
         let displays = io.displays()
         print("External displays: \(displays.count)")
         var healthy = !displays.isEmpty
@@ -260,23 +300,7 @@ enum CLI {
                 healthy = self.writeTest(io, display, .volume, state.volume) && healthy
             }
         }
-        print("Launch at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off")")
-
-        let reply = AppInfo.otherInstance == nil ? nil : client.ask(.status)
-        if AppInfo.otherInstance == nil {
-            print("App: not running")
-        } else if let refusal = reply?.refusal {
-            print("App: running, but it did not answer: \(refusal)")
-            healthy = false
-        } else if let status = reply?.status {
-            print("App: running\n" + describe(status).split(separator: "\n").map { "  \($0)" }.joined(separator: "\n"))
-            healthy = healthy && status.shortcuts.allSatisfy { $0.registered && !$0.usedByMacOS }
-            if keyTest { healthy = self.keyTest(status) && healthy }
-        } else {
-            print("App: running, but it did not answer")
-            healthy = false
-        }
-        return healthy ? 0 : 1
+        return healthy
     }
 
     /// Nudges a feature by one unit, reads it back, then restores and re-reads the original value.

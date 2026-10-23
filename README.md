@@ -148,9 +148,10 @@ line too.
 - `Hushglow watch-keys` shows, for ten seconds, which special keys reach the app. Use it
   to find out what a keyboard's volume keys actually send. Ordinary typing is not recorded,
   and the indicator says on screen that a watch is running for as long as it runs.
-- `Hushglow doctor` checks the connection to the display. `--write-test` also changes
-  brightness and volume by one unit and restores them; `--key-test` sends a simulated volume
-  key through the system to prove that such keys reach the app.
+- `Hushglow doctor` checks the connection to the display, through the app while it runs.
+  `--write-test` also changes brightness and volume by one unit and restores them, once the
+  app has been quit, since only one program may talk to the display at a time; `--key-test`
+  sends a simulated volume key through the system to prove that such keys reach the app.
 - For a live trace of every key and shortcut the app receives:
   `log stream --level debug --predicate 'subsystem == "io.github.meoanderso.Hushglow"'`
 

@@ -2274,6 +2274,20 @@ final class StubMenuHost: StatusMenuHost {
         #expect(CommandClient(name: name).requestStatus(timeout: 0.2) == nil)
     }
 
+    /// `doctor` judges the running app by what it reports, without reading the display itself.
+    @Test func doctorJudgesTheAppByItsStatus() {
+        var status = makeStatus()
+        // The shortcut in the status was refused by macOS and is used by macOS itself.
+        #expect(!CLI.looksHealthy(status))
+        status.shortcuts = [.init(action: "mute", keys: "ctrl+alt+end", registered: true, usedByMacOS: false)]
+        #expect(CLI.looksHealthy(status))
+        status.brightness = nil
+        #expect(!CLI.looksHealthy(status))
+        status.volume = .init(current: 20, maximum: 100)
+        status.displayControlAvailable = false
+        #expect(!CLI.looksHealthy(status))
+    }
+
     @Test func theStatusReportsMemory() throws {
         // The process's own figure is real: a test process is charged far more than a megabyte.
         #expect(try #require(ProcessMemory.footprint) > 1_048_576)
