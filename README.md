@@ -72,9 +72,10 @@ Choose Settings… in the menu. Esc or Cmd-W closes the window.
   is any of Ctrl, Alt, Shift and Cmd with an arrow, page, Home, End or function key; a
   function key can also stand alone. The field shows the modifiers as you hold them. Delete
   removes a shortcut; so does the ✕ beside the field, and the arrow beside it puts back the
-  default. Both show while the pointer is over the field or the field has the focus. The
-  window says why when a shortcut cannot be used. The app's shortcuts are paused only while a field is waiting for
-  keys, so that what you press is taken down and not acted on. Keys that macOS has a
+  default. Both show while the pointer is over the field, or the field or one of them has the
+  focus. The window says why when a shortcut cannot be used. The app's shortcuts are paused
+  only while a field is waiting for keys, so that what you press is taken down and not acted
+  on. Keys that macOS has a
   shortcut of its own on, such as Ctrl+Up for Mission Control, are turned down with a note
   saying so; to use them, switch macOS's shortcut off in System Settings → Keyboard →
   Keyboard Shortcuts. "Quarter steps" registers each stepping shortcut a second time with a
@@ -169,8 +170,12 @@ The app runs on macOS 26 or later. Building it requires Xcode's Swift 6.2 toolch
 later. The one third-party dependency is Sparkle, the updater, which Swift Package Manager
 fetches at an exact version.
 
-Every build runs with the hardened runtime. With a Developer ID certificate, the build script
-also has Apple notarize the app and staples the ticket to it:
+Every build runs with the hardened runtime. A build without a Developer ID also turns library
+validation off, which an ad-hoc or self-signed app needs to load Sparkle. macOS then lets the
+app load code that is not its own, so anything that can change the files inside the app could
+run with the app's access to the brightness and volume keys; a Developer ID build keeps library
+validation on. With a Developer ID certificate, the build script also has Apple notarize the
+app and staples the ticket to it:
 
 ```bash
 CODESIGN_IDENTITY="Developer ID Application: <name> (<team>)" NOTARY_PROFILE=<profile> Scripts/build-app.sh
