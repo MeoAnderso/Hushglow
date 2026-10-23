@@ -196,11 +196,9 @@ import Testing
         #expect(SettingsCarryOver.isNeeded)
     }
 
-    /// Two settings suites of the tests' own stand for the earlier and the new identifier.
-    @Test func carryingOverCopiesTheEarlierSettingsOnce() throws {
-        let name = "Hushglow.tests.\(UUID().uuidString)"
-        let current = try #require(UserDefaults(suiteName: name))
-        defer { current.removePersistentDomain(forName: name) }
+    /// Settings kept in memory stand for the new identifier's, and a dictionary for the earlier.
+    @Test func carryingOverCopiesTheEarlierSettingsOnce() {
+        let current = MemorySettings()
         current.set("ctrl+alt+f1", forKey: "shortcut.brightness-down")
 
         let earlier: [String: Any] = [
@@ -208,15 +206,15 @@ import Testing
             "welcomeShown": true, "indicator.style": "plain",
         ]
         #expect(SettingsCarryOver.carryOver(from: earlier, to: current) == 3)
-        #expect(current.string(forKey: "shortcut.brightness-up") == "ctrl+alt+f2")
-        #expect(current.bool(forKey: "welcomeShown"))
+        #expect(current.object(forKey: "shortcut.brightness-up") as? String == "ctrl+alt+f2")
+        #expect(current.object(forKey: "welcomeShown") as? Bool == true)
         // What the new identifier already has is its own, and stays.
-        #expect(current.string(forKey: "shortcut.brightness-down") == "ctrl+alt+f1")
+        #expect(current.object(forKey: "shortcut.brightness-down") as? String == "ctrl+alt+f1")
 
         // Once done, a later run copies nothing, even what has been removed since.
-        current.removeObject(forKey: "indicator.style")
+        current.set(nil, forKey: "indicator.style")
         #expect(SettingsCarryOver.carryOver(from: earlier, to: current) == 0)
-        #expect(current.string(forKey: "indicator.style") == nil)
+        #expect(current.object(forKey: "indicator.style") == nil)
     }
 
     /// What macOS ties a permission to: the certificate, which Apple's own apps have, else the
@@ -239,14 +237,21 @@ import Testing
     }
 
     /// A first install has no earlier settings; it is still marked done.
-    @Test func carryingOverNothingIsDoneToo() throws {
-        let name = "Hushglow.tests.\(UUID().uuidString)"
-        let current = try #require(UserDefaults(suiteName: name))
-        defer { current.removePersistentDomain(forName: name) }
+    @Test func carryingOverNothingIsDoneToo() {
+        let current = MemorySettings()
         #expect(SettingsCarryOver.carryOver(from: nil, to: current) == 0)
         #expect(SettingsCarryOver.carryOver(from: ["welcomeShown": true], to: current) == 0)
-        #expect(!current.bool(forKey: "welcomeShown"))
+        #expect(current.object(forKey: "welcomeShown") == nil)
     }
+}
+
+/// Settings kept in memory, for a test that writes some: settings written to a suite of the
+/// tests' own stay on disk as a file, even once the suite has been emptied.
+final class MemorySettings: SettingsStore {
+    private(set) var values: [String: Any] = [:]
+
+    func object(forKey key: String) -> Any? { values[key] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }
 
 // MARK: Indicator
@@ -1374,7 +1379,8 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
     @Test func accessIsReadAgainWhileAMenuIsOpen() {
         // AppKit adds the event-tracking mode to the common modes when the application is made.
         _ = NSApplication.shared
-        let access = AccessibilityAccess()
+        // When whatever runs the tests has Accessibility access, a reading notes the grant.
+        let access = AccessibilityAccess(settings: MemorySettings())
         var readings = 0
         access.onChange = { readings += 1 }
         access.read(now: false)

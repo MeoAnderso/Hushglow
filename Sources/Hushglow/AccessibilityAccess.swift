@@ -45,13 +45,19 @@ final class AccessibilityAccess: NSObject {
     var onChange: (() -> Void)?
     private var storedToken: Int32 = 0
     private var helper: PermissionHelper?
+    private let settings: any SettingsStore
+
+    /// The app's settings unless a test gives a store of its own.
+    init(settings: any SettingsStore = AppInfo.defaults) {
+        self.settings = settings
+    }
 
     var isGranted: Bool { AXIsProcessTrusted() }
 
     /// When set, a new build no longer asks for access on its own; the menu still can.
     var askingIsDisabled: Bool {
-        get { AppInfo.defaults.bool(forKey: Self.askingDisabledKey) }
-        set { AppInfo.defaults.set(newValue, forKey: Self.askingDisabledKey) }
+        get { settings.object(forKey: Self.askingDisabledKey) as? Bool ?? false }
+        set { settings.set(newValue, forKey: Self.askingDisabledKey) }
     }
 
     /// Starts following changes. Returns whether this launch should raise the subject with the
@@ -68,9 +74,9 @@ final class AccessibilityAccess: NSObject {
         let signature = CodeIdentity.signature ?? "unknown"
         noteGrant()
         let shouldAsk = AccessPolicy.shouldAskAtLaunch(
-            isGranted: isGranted, handledSignature: AppInfo.defaults.string(forKey: Self.handledBuildKey),
+            isGranted: isGranted, handledSignature: settings.object(forKey: Self.handledBuildKey) as? String,
             currentSignature: signature, askingIsDisabled: askingIsDisabled)
-        AppInfo.defaults.set(signature, forKey: Self.handledBuildKey)
+        settings.set(signature, forKey: Self.handledBuildKey)
         return shouldAsk
     }
 
@@ -85,7 +91,7 @@ final class AccessibilityAccess: NSObject {
         guard
             AccessPolicy.clearsEntryBeforeAsking(
                 isAdHoc: !CodeIdentity.isSignedWithCertificate,
-                grantedSignature: AppInfo.defaults.string(forKey: Self.grantedSignatureKey),
+                grantedSignature: settings.object(forKey: Self.grantedSignatureKey) as? String,
                 currentSignature: CodeIdentity.signature ?? "unknown")
         else { return guide() }
         let reset = Process()
@@ -146,9 +152,9 @@ final class AccessibilityAccess: NSObject {
     /// knows the entry in the list to be its own.
     private func noteGrant() {
         guard isGranted, let signature = CodeIdentity.signature,
-            AppInfo.defaults.string(forKey: Self.grantedSignatureKey) != signature
+            settings.object(forKey: Self.grantedSignatureKey) as? String != signature
         else { return }
-        AppInfo.defaults.set(signature, forKey: Self.grantedSignatureKey)
+        settings.set(signature, forKey: Self.grantedSignatureKey)
     }
 }
 

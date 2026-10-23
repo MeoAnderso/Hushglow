@@ -34,6 +34,16 @@ enum AppInfo {
     }
 }
 
+/// What the code that copies or notes settings needs of where they are kept: the app's
+/// settings, or in the tests a store that keeps them in memory, so that a test leaves no
+/// settings file behind.
+protocol SettingsStore: AnyObject {
+    func object(forKey key: String) -> Any?
+    func set(_ value: Any?, forKey key: String)
+}
+
+extension UserDefaults: SettingsStore {}
+
 /// The settings are kept under the bundle identifier, so a new identifier would start the app
 /// with none. The first run under a new one copies them over from the identifier the app had
 /// before. While the identifier is unchanged this does nothing.
@@ -55,8 +65,8 @@ enum SettingsCarryOver {
     /// Copies the earlier settings into `current` where it has no value of its own, once; later
     /// calls copy nothing. Returns how many settings were copied.
     @discardableResult
-    static func carryOver(from earlier: [String: Any]?, to current: UserDefaults) -> Int {
-        guard !current.bool(forKey: doneKey) else { return 0 }
+    static func carryOver(from earlier: [String: Any]?, to current: any SettingsStore) -> Int {
+        guard current.object(forKey: doneKey) as? Bool != true else { return 0 }
         var copied = 0
         for (key, value) in earlier ?? [:] where current.object(forKey: key) == nil {
             current.set(value, forKey: key)
