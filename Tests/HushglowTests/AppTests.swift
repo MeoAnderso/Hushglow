@@ -1384,6 +1384,22 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
     private let screen = NSRect(x: 0, y: 0, width: 1920, height: 1050)
     private let size = PermissionHelper.size
 
+    /// The helper watches the System Settings window many times a second, so it does not stay
+    /// for ever: it goes once the window has been gone a while, and after ten minutes even with
+    /// the window there.
+    @Test func goesAfterAWhile() {
+        let shown = Date(timeIntervalSince1970: 1_000_000)
+        func stayedLongEnough(after seconds: TimeInterval, lastSeen: TimeInterval, windowIsThere: Bool) -> Bool {
+            PermissionHelper.hasStayedLongEnough(
+                shownAt: shown, lastSeen: shown + lastSeen, windowIsThere: windowIsThere, now: shown + seconds)
+        }
+        #expect(!stayedLongEnough(after: 60, lastSeen: 59, windowIsThere: true))
+        #expect(!stayedLongEnough(after: 100, lastSeen: 0, windowIsThere: false))
+        #expect(stayedLongEnough(after: 200, lastSeen: 0, windowIsThere: false))
+        #expect(!stayedLongEnough(after: 599, lastSeen: 598, windowIsThere: true))
+        #expect(stayedLongEnough(after: 601, lastSeen: 600, windowIsThere: true))
+    }
+
     @Test func sitsCentredUnderTheList() {
         let settings = NSRect(x: 400, y: 300, width: 715, height: 600)
         let frame = PermissionHelper.frame(under: settings, visible: screen)

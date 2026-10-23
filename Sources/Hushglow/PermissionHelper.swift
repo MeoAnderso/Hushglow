@@ -6,7 +6,8 @@ import AppKit
 /// alert.
 ///
 /// It goes with the Settings window, not with whichever app is in front, and goes away when
-/// access is granted, when it is closed, or when the window has been gone for a while. It
+/// access is granted, when it is closed, when the window has been gone for a while, or after
+/// ten minutes whatever happens, since it watches the window many times a second. It
 /// appears in the same moment as that window and sits just above it in the window order, so
 /// that it goes behind other apps together with it.
 @MainActor
@@ -23,7 +24,9 @@ final class PermissionHelper: NSObject {
     /// Long enough for System Settings to launch and put its window up.
     private static let launchTime: TimeInterval = 5
     /// How long the helper waits for the window to come back before giving up.
-    private static let patience: TimeInterval = 120
+    static let patience: TimeInterval = 120
+    /// How long the helper stays at all, the window there or not; the menu brings it back.
+    static let lifetime: TimeInterval = 600
     /// While it opens, the Settings window is briefly much smaller than it ends up.
     private static let smallestWindow = NSSize(width: 200, height: 150)
     /// The list fills the Settings window to the right of a sidebar about this wide.
@@ -34,6 +37,7 @@ final class PermissionHelper: NSObject {
     private var panel: NSPanel?
     private var timer: Timer?
     private var lastSeen = Date()
+    private var shownAt = Date()
     private var followCloselyUntil = Date()
     private var settingsFrame: NSRect?
 
@@ -43,6 +47,7 @@ final class PermissionHelper: NSObject {
 
     func show() {
         if panel == nil { panel = makePanel() }
+        shownAt = Date()
         lastSeen = Date()
         followCloselyUntil = Date().addingTimeInterval(Self.launchTime)
         settingsFrame = nil
@@ -60,12 +65,13 @@ final class PermissionHelper: NSObject {
     /// many times a second, and the change notifications already say when it is granted.
     @objc private func follow() {
         guard let panel else { return }
-        guard let settings = settingsWindow(),
-            let screen = NSScreen.screens.first(where: { $0.frame.intersects(settings.frame) })
-        else {
+        let settings = settingsWindow()
+        let screen = settings.flatMap { settings in NSScreen.screens.first { $0.frame.intersects(settings.frame) } }
+        guard !Self.hasStayedLongEnough(shownAt: shownAt, lastSeen: lastSeen, windowIsThere: screen != nil, now: Date())
+        else { return dismiss() }
+        guard let settings, let screen else {
             panel.orderOut(nil)
             settingsFrame = nil
-            if Date().timeIntervalSince(lastSeen) > Self.patience { return dismiss() }
             return followAgain()
         }
         lastSeen = Date()
@@ -82,6 +88,12 @@ final class PermissionHelper: NSObject {
             panel.order(.above, relativeTo: settings.number)
         }
         followAgain()
+    }
+
+    /// Whether the helper has stayed long enough: up for its whole lifetime, or the window gone
+    /// for longer than the helper's patience.
+    static func hasStayedLongEnough(shownAt: Date, lastSeen: Date, windowIsThere: Bool, now: Date) -> Bool {
+        now.timeIntervalSince(shownAt) > lifetime || (!windowIsThere && now.timeIntervalSince(lastSeen) > patience)
     }
 
     private func followAgain() {
