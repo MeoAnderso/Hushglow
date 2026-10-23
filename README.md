@@ -17,7 +17,10 @@ DDC/CI.
 Requires an Apple silicon Mac with macOS 26 or later, and a display with DDC/CI switched on.
 HDMI works on some Macs only.
 
-To install, build it from source (see [Build and install](#build-and-install)).
+To install, download the latest [release](https://github.com/MeoAnderso/Hushglow/releases/latest),
+unzip it and move Hushglow to Applications. It is not notarized yet, so macOS refuses to open
+it at first: in System Settings → Privacy & Security, choose Open Anyway. You can also build
+it from source (see [Build and install](#build-and-install)).
 
 ![On-screen indicator](.github/osd-preview.png)
 
