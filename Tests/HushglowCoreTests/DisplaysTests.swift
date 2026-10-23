@@ -658,6 +658,22 @@ private final class Recorder {
         #expect(displays.state(of: transport.handle)?.brightness?.current == 50)
     }
 
+    /// A command still waiting to be read for when the displays are looked for again goes to
+    /// the same display, found again, even when the new search lists the displays in another
+    /// order; it used to go to whichever display took its place in the list.
+    @Test func aWaitingCommandFollowsItsDisplayToTheNewSearch() async throws {
+        let second = try #require(transport.second)
+        transport.listInReverse()
+        displays.refresh()
+        recorder.now += 6
+        press(brightnessUp, on: [second])
+        await settle()
+        #expect(displays.controlled.first === second)
+        let events = transport.takeEvents()
+        #expect(events.contains("2: set brightness=31"), "\(events)")
+        #expect(!events.contains { $0.hasPrefix("set brightness") }, "\(events)")
+    }
+
     /// A command for every display goes to each, and the first display's level is shown.
     @Test func aCommandForEveryDisplayGoesToEach() async {
         press(brightnessUp)

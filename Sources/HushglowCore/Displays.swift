@@ -11,9 +11,17 @@ public protocol DisplayTransport: Sendable {
     func get(_ display: Handle, _ feature: DDC.Feature) -> DDC.Value?
     /// Writes a feature. Success means the bytes were sent, not that the display honoured them.
     func set(_ display: Handle, _ feature: DDC.Feature, value: Int) -> Bool
+    /// Whether two handles, from two searches, stand for the same display; false when that
+    /// cannot be told.
+    func isSame(_ display: Handle, as other: Handle) -> Bool
 }
 
 extension DisplayTransport {
+    /// Only a handle is the same as itself, for a transport whose searches hand out new ones.
+    public func isSame(_ display: Handle, as other: Handle) -> Bool {
+        display === other
+    }
+
     public func state(of display: Handle) -> DisplayState {
         let brightness = get(display, .brightness)
         let volume = get(display, .volume)
@@ -260,11 +268,18 @@ public final class Displays<Transport: DisplayTransport> {
         let overtaken = Set(Command.Control.allCases.filter { commandCounts[$0] != startCounts[$0] })
         for session in sessions { session.distrust(overtaken) }
         onChange?()
-        // Commands still waiting for a display that is gone go to the one found in its place.
-        for (index, session) in old.enumerated() {
-            for item in session.retire() {
-                if index < sessions.count {
-                    sessions[index].apply(item.command, feedback: item.feedback)
+        // Commands still waiting for a display that is gone go to the same display, found again,
+        // whatever its place in the new search; with one display before and after, that one.
+        // Where that cannot be told, they are dropped rather than sent to another display.
+        for session in old {
+            let waiting = session.retire()
+            guard !waiting.isEmpty else { continue }
+            let same =
+                old.count == 1 && sessions.count == 1
+                ? sessions : sessions.filter { transport.isSame($0.display, as: session.display) }
+            for item in waiting {
+                if same.count == 1 {
+                    same[0].apply(item.command, feedback: item.feedback)
                 } else {
                     item.feedback(nil, true)
                 }

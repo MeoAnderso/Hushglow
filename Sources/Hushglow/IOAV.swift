@@ -218,6 +218,12 @@ struct IOAV: DisplayTransport {
         send(service, DDC.setRequest(feature, value: value), waits(for: service), cycles: Self.setCycles)
     }
 
+    /// Each search makes new services, so a display is told by what its EDID says. Two of one
+    /// model without distinct serials look alike, and the caller then cannot tell which is which.
+    func isSame(_ display: AVService, as other: AVService) -> Bool {
+        display.identity != nil && display.identity == other.identity
+    }
+
     private func waits(for service: AVService) -> Waits {
         service.pace.needsLongWaits ? .long : .short
     }
