@@ -162,7 +162,7 @@ Scripts/install.sh       # builds, installs into /Applications and starts the ap
 Scripts/build-app.sh     # only builds build/Hushglow.app
 Scripts/release.sh       # also packs and signs it for an update, and writes the feed; --publish releases it
 swift test               # unit tests
-swift format lint --strict --recursive Sources Tests Scripts Package.swift
+swift format lint --strict --recursive Sources Tests Package.swift
 ```
 
 The app runs on macOS 26 or later. Building it requires Xcode's Swift 6.2 toolchain or

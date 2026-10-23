@@ -46,7 +46,15 @@ framework="$app/Contents/Frameworks/Sparkle.framework"
 mkdir -p "$app/Contents/Frameworks"
 ditto .build/release/Sparkle.framework "$framework"
 rm -rf "$framework/Versions/B/XPCServices" "$framework/XPCServices"
+# Its headers and module map are for building against it, not for running it.
+for part in Headers PrivateHeaders Modules; do rm -rf "${framework:?}/Versions/B/$part" "${framework:?}/$part"; done
 install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/Hushglow"
+# Swift Package Manager also has the executable look beside itself first, where nothing of
+# the app's belongs: with library validation off, a framework put there would be loaded.
+load_commands=$(otool -l "$app/Contents/MacOS/Hushglow")
+if [[ "$load_commands" == *"path @loader_path "* ]]; then
+    install_name_tool -delete_rpath @loader_path "$app/Contents/MacOS/Hushglow"
+fi
 # Sparkle's licence, with those of the code it includes, goes with every copy of it.
 {
     echo "Hushglow includes Sparkle (https://sparkle-project.org), under the licence below."

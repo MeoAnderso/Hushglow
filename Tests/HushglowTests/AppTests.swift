@@ -178,7 +178,7 @@ import Testing
     /// Names in a list are joined in the language of the app's text, English until it has another.
     @Test func listsAreJoinedInTheAppsLanguage() {
         #expect(ListFormatter.joinedInAppLanguage(["Rectangle", "Magnet"]) == "Rectangle and Magnet")
-        #expect(ListFormatter.joinedInAppLanguage(["LG"]) == "LG")
+        #expect(ListFormatter.joinedInAppLanguage(["PANEL 27"]) == "PANEL 27")
     }
 
     /// The tests have settings of their own: whatever they do, by design or by mistake, does

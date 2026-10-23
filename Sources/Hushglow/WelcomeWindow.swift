@@ -256,7 +256,6 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
     }
 }
 
-/// A shortcut drawn as a key cap, such as ⌃⌥↑.
 /// A shortcut drawn as a key cap, such as ⌃⌥↑, which lights up when its shortcut is pressed.
 /// The light is a layer under the cap's face that Core Animation fades; it is a fade only, so
 /// it plays with Reduce Motion too.

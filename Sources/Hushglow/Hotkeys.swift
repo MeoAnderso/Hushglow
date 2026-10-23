@@ -122,6 +122,12 @@ final class Hotkeys: NSObject, ShortcutRegistry {
         self.handler = handler
     }
 
+    // Carbon holds this object unretained for its handler, so the two go together.
+    isolated deinit {
+        unregisterAll()
+        if let eventHandler { RemoveEventHandler(eventHandler) }
+    }
+
     /// Registers the configured shortcuts, replacing any earlier registration. With quarter
     /// steps switched on, each stepping shortcut is also registered with their modifier added.
     func reload() {

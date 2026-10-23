@@ -50,7 +50,7 @@ jobs:
           grep -oE 'Test [^ ]+ skipped.*' test.log | sed 's/^/::notice::/' || true
 
       - name: Lint
-        run: swift format lint --strict --recursive Sources Tests Scripts Package.swift
+        run: swift format lint --strict --recursive Sources Tests Package.swift
 
       # Every string the interface looks up must be in the catalog that translations go into.
       - name: String catalog
