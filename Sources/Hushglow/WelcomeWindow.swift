@@ -93,17 +93,17 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
             add(
                 text(
                     String(
-                        localized: "Look for the sun in the menu bar. These shortcuts control your display; try one:")),
+                        localized: "Look for the moon in the menu bar. These shortcuts control your display; try one:")),
                 gap: 12)
             add(shortcuts, gap: 8)
             let change = String(
-                localized: "You can also change them, if you want. Choose Settings… from the sun’s menu.")
+                localized: "You can also change them, if you want. Choose Settings… from the moon’s menu.")
             let why = occasion == .firstLaunch ? Self.whyFunctionKeys() : nil
             add(
                 text([why, change].compactMap { $0 }.joined(separator: " "), size: 12, color: .secondaryLabelColor),
                 gap: 14)
         } else {
-            add(text(String(localized: "Look for the sun in the menu bar.")), gap: 12)
+            add(text(String(localized: "Look for the moon in the menu bar.")), gap: 12)
         }
         add(text(Self.keysText(occasion, keysAreActive: keysAreActive), size: 12, color: .secondaryLabelColor), gap: 22)
 

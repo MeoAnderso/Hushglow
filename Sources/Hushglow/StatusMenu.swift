@@ -131,23 +131,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         item.button?.image = Self.icon(muted: muted)
     }
 
-    /// The sun over the horizon; for a muted display, with a crossed-out speaker cut into its
-    /// lower right corner. A template, so that the menu bar gives it its colour.
+    /// The moon over the haze, as on the app's icon; for a muted display, with a crossed-out
+    /// speaker cut into its lower right corner. A template, so that the menu bar gives it its colour.
     static func icon(muted: Bool) -> NSImage {
         let description = muted ? String(localized: "\(AppInfo.name), display muted") : AppInfo.name
-        guard let sun = NSImage(systemSymbolName: "sun.horizon.fill", accessibilityDescription: description) else {
-            return NSImage(systemSymbolName: "sun.max", accessibilityDescription: description) ?? NSImage()
+        guard let moon = NSImage(systemSymbolName: "moon.haze.fill", accessibilityDescription: description) else {
+            return NSImage(systemSymbolName: "moon.fill", accessibilityDescription: description) ?? NSImage()
         }
         guard muted,
             let speaker = NSImage(systemSymbolName: "speaker.slash.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: (sun.size.height * 0.42).rounded(), weight: .semibold))
-        else { return sun }
-        let icon = NSImage(size: sun.size, flipped: false) { bounds in
-            sun.draw(in: bounds)
+                .withSymbolConfiguration(.init(pointSize: (moon.size.height * 0.42).rounded(), weight: .semibold))
+        else { return moon }
+        let icon = NSImage(size: moon.size, flipped: false) { bounds in
+            moon.draw(in: bounds)
             let badge = NSRect(
                 x: bounds.maxX - speaker.size.width, y: bounds.minY, width: speaker.size.width,
                 height: speaker.size.height)
-            // A gap round the speaker, so that it reads apart from the sun.
+            // A gap round the speaker, so that it reads apart from the moon.
             NSGraphicsContext.current?.compositingOperation = .destinationOut
             NSBezierPath(roundedRect: badge.insetBy(dx: -1, dy: -1), xRadius: 2, yRadius: 2).fill()
             NSGraphicsContext.current?.compositingOperation = .sourceOver

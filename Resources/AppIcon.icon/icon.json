@@ -1,19 +1,41 @@
 {
   "fill" : {
-    "solid" : "srgb:0.07000,0.07500,0.21000,1.00000"
+    "solid" : "srgb:0.00000,0.10200,0.32200,1.00000"
   },
   "groups" : [
     {
       "layers" : [
         {
           "glass" : true,
-          "image-name" : "bar.png",
-          "name" : "bar"
+          "image-name" : "moon.png",
+          "name" : "moon"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "swell-near.png",
+          "name" : "swell-near"
         },
         {
           "glass" : true,
-          "image-name" : "sun.png",
-          "name" : "sun"
+          "image-name" : "swell-middle.png",
+          "name" : "swell-middle"
+        },
+        {
+          "glass" : true,
+          "image-name" : "swell-far.png",
+          "name" : "swell-far"
         }
       ],
       "shadow" : {
