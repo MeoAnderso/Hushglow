@@ -52,6 +52,32 @@ import Testing
         #expect(identity(4660, 22136, 0).screen(among: screens) == nil)
         #expect(identity(1, 2, 3).screen(among: screens) == nil)
     }
+
+    /// Two screens of one model with no serial, or the same one, fit equally well: either
+    /// could be this display, so neither is taken, rather than both displays being paired
+    /// with the first.
+    @Test func twoScreensThatFitEquallyAreNoAnswer() {
+        let twins: [(id: CGDirectDisplayID, vendor: UInt32, model: UInt32, serial: UInt32)] = [
+            (5, 4660, 22136, 0), (6, 4660, 22136, 0), (7, 4661, 22137, 16_843_009), (8, 4661, 22137, 16_843_009),
+        ]
+        #expect(identity(4660, 22136, 0).screen(among: twins) == nil)
+        #expect(identity(4661, 22137, 16_843_009).screen(among: twins) == nil)
+    }
+
+    /// Two displays with one name get numbers in the menu and in `status`, as macOS gives them.
+    @Test func displaysWithOneNameAreNumbered() {
+        #expect(
+            MenuDisplay.distinct(["PANEL 27", "PANEL 32", "PANEL 27"]) == ["PANEL 27 (1)", "PANEL 32", "PANEL 27 (2)"])
+        #expect(MenuDisplay.distinct(["PANEL 27", "PANEL 32"]) == ["PANEL 27", "PANEL 32"])
+    }
+
+    /// The display sound plays through is the one whose name it has; with two of that name
+    /// it is neither, and the volume keys follow the pointer.
+    @Test func soundGoesToADisplayOnlyWhenOneHasItsName() {
+        #expect(AppDelegate.only(["PANEL 27", "PANEL 32"]) { $0 == "PANEL 32" } == "PANEL 32")
+        #expect(AppDelegate.only(["PANEL 27", "PANEL 27"]) { $0 == "PANEL 27" } == nil)
+        #expect(AppDelegate.only(["PANEL 27"]) { $0 == "TV" } == nil)
+    }
 }
 
 @MainActor

@@ -34,12 +34,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     }
 
     var menuDisplays: [MenuDisplay] {
-        displays?.sessions.map { session in
-            MenuDisplay(
-                id: ObjectIdentifier(session.display),
-                name: session.display.identity?.name ?? String(localized: "Display", comment: "A display with no name"),
-                state: session.state)
-        } ?? []
+        let sessions = displays?.sessions ?? []
+        let names = MenuDisplay.distinct(
+            sessions.map {
+                $0.display.identity?.name ?? String(localized: "Display", comment: "A display with no name")
+            })
+        return zip(sessions, names).map { session, name in
+            MenuDisplay(id: ObjectIdentifier(session.display), name: name, state: session.state)
+        }
     }
     var displayControlIsAvailable: Bool { displays != nil }
     var keyboardKeysAreActive: Bool { keyboard.keysAreActive }
@@ -97,7 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         }
         // Plugging a display in produces a burst of these; act once it is over.
         systemEvents.onDisplaysReconfigured = { [unowned self] in
-            // A screen that moved or changed size takes its overlay with it.
+            // A screen that moved or changed size takes its overlay with it; one that came or
+            // went decides which displays can be dimmed.
+            displays?.applyDimmingLimits()
             updateDimming()
             scheduleRefresh(after: Self.reconfigurationSettleDelay)
             // Which display is the main one may have changed already.
@@ -234,7 +238,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     /// The display under control that sound plays through, by the name of the sound output.
     private var soundDisplay: AVService? {
         guard let name = audio.displayName else { return nil }
-        return displays?.controlled.first { $0.identity?.playsSound(named: name) == true }
+        return Self.only(displays?.controlled ?? []) { $0.identity?.playsSound(named: name) == true }
+    }
+
+    /// The one display that fits; nil when none does, or several do, as two of one model
+    /// with the same name would.
+    nonisolated static func only<Display>(_ displays: [Display], fitting fits: (Display) -> Bool) -> Display? {
+        let fitting = displays.filter(fits)
+        return fitting.count == 1 ? fitting[0] : nil
     }
 
     private var displayUnderPointer: AVService? {
@@ -342,6 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             }
         }
         displays.maximumDimming = DimmingSettings.maximumSteps
+        displays.canDim = { $0.identity?.screen != nil }
         displays.onChange = { [unowned self] in
             statusMenu?.displaysChanged()
             keyboard.updateRouting()

@@ -10,6 +10,22 @@ struct MenuDisplay: Equatable {
     var state: DisplayState
 }
 
+extension MenuDisplay {
+    /// The names as the menu shows them: one that two displays share is numbered, as macOS
+    /// numbers two screens of one model, so that their groups can be told apart.
+    static func distinct(_ names: [String]) -> [String] {
+        var counts: [String: Int] = [:]
+        return names.map { name in
+            guard names.count(where: { $0 == name }) > 1 else { return name }
+            counts[name, default: 0] += 1
+            let number = counts[name] ?? 1
+            return String(
+                localized: "\(name) (\(number))",
+                comment: "A display's name, numbered when another display has the same")
+        }
+    }
+}
+
 /// What the menu needs from the app.
 @MainActor
 protocol StatusMenuHost: AnyObject {

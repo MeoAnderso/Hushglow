@@ -35,14 +35,19 @@ struct DisplayIdentity: Equatable, Sendable {
     }
 
     /// The screen this display is, among those given: the one with the same vendor, model and
-    /// serial number, or with the same vendor and model when the serial says nothing.
+    /// serial number, or with the same vendor and model when the serial says nothing. Two
+    /// screens that fit equally, as two of one model whose EDID has no serial or the same one,
+    /// could be either, and the answer is nil: a wrong screen would send the keys, the
+    /// indicator and the dimming to the other display.
     func screen(
         among screens: [(id: CGDirectDisplayID, vendor: UInt32, model: UInt32, serial: UInt32)]
     )
         -> CGDirectDisplayID?
     {
         let same = screens.filter { $0.vendor == vendor && $0.model == model }
-        return (same.first { $0.serial == serial } ?? (same.count == 1 ? same.first : nil))?.id
+        let exact = same.filter { $0.serial == serial }
+        if exact.count == 1 { return exact[0].id }
+        return exact.isEmpty && same.count == 1 ? same[0].id : nil
     }
 
     /// The screen this display is; nil when none matches.

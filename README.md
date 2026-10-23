@@ -51,7 +51,9 @@ its name, and the keys and shortcuts change the display under the pointer; the v
 change the display that sound plays through. The indicator appears on the display that
 changed. Settings → General can have the keys change every display at once instead. A
 display that has contrast gets a slider for it, and one that reports its input gets its
-inputs in a submenu, to switch it to another source.
+inputs in a submenu, to switch it to another source. Two displays of one model that report
+no serial number, or the same one, cannot be told apart: the menu numbers their names, the
+keys change both, and neither is dimmed below its lowest brightness.
 
 A keyboard's own volume and brightness keys work too, if it has them and macOS receives
 them. That needs the app to be switched on in System Settings → Privacy & Security, in the

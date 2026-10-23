@@ -84,7 +84,12 @@ public final class Displays<Transport: DisplayTransport> {
     /// How many steps a screen may be dimmed below its display's lowest brightness; 0 turns
     /// dimming off, and takes off any there is.
     public var maximumDimming = 0 {
-        didSet { for session in sessions { session.maximumDimming = maximumDimming } }
+        didSet { applyDimmingLimits() }
+    }
+    /// Whether a display's screen can be dimmed; nil for every display. One whose screen is not
+    /// known has no overlay to darken it, so its brightness keys stop at its lowest.
+    public var canDim: ((Transport.Handle) -> Bool)? {
+        didSet { applyDimmingLimits() }
     }
     /// Supersedes discoveries that are still in flight.
     private var generation = 0
@@ -184,6 +189,16 @@ public final class Displays<Transport: DisplayTransport> {
         for session in sessions { session.suspend() }
     }
 
+    /// Gives each display the dimming it may have, for when what decides it has changed, such
+    /// as the arrangement of the screens.
+    public func applyDimmingLimits() {
+        for session in sessions { session.maximumDimming = dimmingLimit(for: session.display) }
+    }
+
+    private func dimmingLimit(for display: Transport.Handle) -> Int {
+        canDim?(display) == false ? 0 : maximumDimming
+    }
+
     private func session(for display: Transport.Handle) -> DisplaySession<Transport>? {
         sessions.first { $0.display === display }
     }
@@ -221,7 +236,7 @@ public final class Displays<Transport: DisplayTransport> {
             let session = DisplaySession(
                 display: display, state: state, transport: transport, queue: queue, timing: timing, now: now,
                 writer: writer, owner: owner)
-            session.maximumDimming = maximumDimming
+            session.maximumDimming = dimmingLimit(for: display)
             return session
         }
         // A command applied while the displays were being read may be missing from the reading.

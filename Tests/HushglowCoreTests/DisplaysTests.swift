@@ -509,6 +509,24 @@ private final class Recorder {
         #expect(displays.primary?.dimming == 0)
     }
 
+    /// A display whose screen cannot be dimmed, as one whose screen is not known, stops at its
+    /// lowest; the others go on dimming.
+    @Test func onlyADisplayWhoseScreenCanBeDimmedIsDimmed() async {
+        transport.change(.brightness, to: 0)
+        press(.set(.brightness, percent: 0))
+        await settle()
+        displays.maximumDimming = 3
+        displays.canDim = { _ in false }
+        press(.step(.brightness, up: false, fine: false))
+        #expect(displays.primary?.dimming == 0)
+        displays.canDim = nil
+        press(.step(.brightness, up: false, fine: false))
+        #expect(displays.primary?.dimming == 1)
+        // Taken away again when the screen is no longer known.
+        displays.canDim = { _ in false }
+        #expect(displays.primary?.dimming == 0)
+    }
+
     @Test func readsTheDisplayForTheCommandLineAndLeavesTheCacheAlone() async {
         transport.change(.brightness, to: 80)
         let recorder = recorder
