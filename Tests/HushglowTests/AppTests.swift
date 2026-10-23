@@ -2122,6 +2122,31 @@ final class StubMenuHost: StatusMenuHost {
         #expect(received.commands.isEmpty)
     }
 
+    /// A caller that connects and says nothing does not hold up the next: each is served on
+    /// its own. The channel turns this test's process down here, which it does without the
+    /// main thread, so the time is the channel's alone.
+    @MainActor
+    @Test func aSilentCallerHoldsUpNoOne() async throws {
+        let channel = try makeChannel(requirement: CallerRequirement(#"identifier "com.example.other""#))
+        defer { channel.stop() }
+        var silent: [Int32] = []
+        defer { for socket in silent { close(socket) } }
+        for _ in 0..<3 {
+            let socket = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            var address = try #require(ChannelAddress.address(channel.path))
+            let connected = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    connect(socket, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            #expect(connected == 0)
+            silent.append(socket)
+        }
+        // Served one after another, the three would take two seconds each.
+        let reply = await ask(.status, timeout: 1)
+        #expect(reply?.refusal == CommandChannel.notTheApp)
+    }
+
     /// A caller is judged as it was accepted and as it is once its request has come: one that
     /// has become another program between the two, as one that sends a request and then runs
     /// the app's own executable would, is turned down even when the program it became would do.

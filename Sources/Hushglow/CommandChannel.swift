@@ -318,14 +318,17 @@ final class CommandChannel {
         }
     }
 
-    /// Takes each caller as it connects, off the main thread. Made outside the initializer, so
-    /// that the handlers do not take on the main actor's isolation.
+    /// Takes each caller as it connects, off the main thread, and serves each on a thread of its
+    /// own: one that connects and says nothing must not hold up the callers behind it. Made
+    /// outside the initializer, so that the handlers do not take on the main actor's isolation.
     nonisolated private static func accept(
         on listener: Int32, serving serve: @escaping @Sendable (Int32) -> Void
     ) -> DispatchSourceRead {
         let source = DispatchSource.makeReadSource(fileDescriptor: listener, queue: .global(qos: .userInitiated))
         source.setEventHandler {
-            while case let client = Darwin.accept(listener, nil, nil), client >= 0 { serve(client) }
+            while case let client = Darwin.accept(listener, nil, nil), client >= 0 {
+                DispatchQueue.global(qos: .userInitiated).async { serve(client) }
+            }
         }
         source.setCancelHandler { close(listener) }
         source.resume()
