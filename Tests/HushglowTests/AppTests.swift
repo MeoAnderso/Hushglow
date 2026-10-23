@@ -181,6 +181,14 @@ import Testing
         #expect(ListFormatter.joinedInAppLanguage(["LG"]) == "LG")
     }
 
+    /// The tests have settings of their own: whatever they do, by design or by mistake, does
+    /// not reach the settings of the app in use. One test once wrote there, through the
+    /// reading of Accessibility access, whenever whatever ran the tests had that access.
+    @Test func theTestsHaveSettingsOfTheirOwn() {
+        #expect(AppInfo.defaultsDomain == "\(AppInfo.bundleID).tests")
+        #expect(AppInfo.defaults !== UserDefaults.standard)
+    }
+
     /// The app was DisplayKeys, under `local.DisplayKeys`; its settings come over once.
     @Test func settingsAreCarriedOverFromTheEarlierIdentifier() {
         #expect(SettingsCarryOver.earlierBundleID == "local.DisplayKeys")

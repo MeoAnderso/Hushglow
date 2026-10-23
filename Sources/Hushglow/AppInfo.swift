@@ -10,10 +10,22 @@ enum AppInfo {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 
-    /// The app's settings, also when the binary runs outside its bundle (for example from `.build`).
+    /// Where the settings are kept: the app's own domain, in the app and on its command line,
+    /// also when the binary runs outside its bundle (for example from `.build`). Any other
+    /// process that runs this code, as the tests do, has a domain of its own, so that nothing
+    /// it does can reach the settings of the app in use.
+    static let defaultsDomain =
+        Bundle.main.bundleIdentifier == bundleID || ProcessInfo.processInfo.processName == name
+        ? bundleID : "\(bundleID).tests"
+
+    /// The app's settings. Those of another process start empty each time, so that what one
+    /// run of the tests leaves behind does not change the next.
     /// UserDefaults may be used from any thread, which the compiler has no way of knowing.
-    nonisolated(unsafe) static let defaults: UserDefaults =
-        Bundle.main.bundleIdentifier == bundleID ? .standard : UserDefaults(suiteName: bundleID) ?? .standard
+    nonisolated(unsafe) static let defaults: UserDefaults = {
+        if Bundle.main.bundleIdentifier == bundleID { return .standard }
+        if defaultsDomain != bundleID { UserDefaults.standard.removePersistentDomain(forName: defaultsDomain) }
+        return UserDefaults(suiteName: defaultsDomain) ?? .standard
+    }()
 
     /// The running app, when this process is not it.
     @MainActor static var otherInstance: NSRunningApplication? {
