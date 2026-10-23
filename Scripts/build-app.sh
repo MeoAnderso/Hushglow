@@ -43,6 +43,12 @@ mkdir -p "$app/Contents/Frameworks"
 ditto .build/release/Sparkle.framework "$framework"
 rm -rf "$framework/Versions/B/XPCServices" "$framework/XPCServices"
 install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/Hushglow"
+# Sparkle's licence, with those of the code it includes, goes with every copy of it.
+{
+    echo "Hushglow includes Sparkle (https://sparkle-project.org), under the licence below."
+    echo
+    cat .build/artifacts/sparkle/Sparkle/LICENSE
+} >"$app/Contents/Resources/Acknowledgements.txt"
 
 # The text in other languages, from the string catalog: one folder per language it has been
 # translated into. English is the code's own, and its folder says that the app has it.

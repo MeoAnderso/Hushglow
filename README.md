@@ -239,4 +239,5 @@ from that list in System Settings, and run `defaults delete io.github.meoanderso
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The app includes [Sparkle](https://sparkle-project.org) under
+its own licence, which comes with the app as `Contents/Resources/Acknowledgements.txt`.
