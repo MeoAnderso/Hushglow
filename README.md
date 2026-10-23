@@ -176,12 +176,15 @@ CODESIGN_IDENTITY="Developer ID Application: <name> (<team>)" NOTARY_PROFILE=<pr
 The profile holds the notarization credentials in the keychain; create it once with
 `xcrun notarytool store-credentials <profile>`.
 
-Every push to GitHub is built without warnings, tested, linted and built into the app by
-[continuous integration](.github/workflows/ci.yml); only the pictures are left to a person.
+Every push to GitHub is built without warnings, the tests included, then tested, linted and
+built into the app by [continuous integration](.github/workflows/ci.yml).
 
-Running the tests with `PREVIEW_DIR` set to a folder also writes pictures of the indicator,
-the menu, Settings, the notices and the helper there. That puts windows and a menu on screen
-for a few seconds.
+The tests that put windows and a menu on screen run only with `PREVIEW_DIR` set to a folder,
+and are reported as skipped otherwise, continuous integration included; they are left to a
+person. They write pictures of the indicator, the menu, Settings, the notices and the helper
+to that folder, and check what can only be seen on screen: the shortcuts and a drag in the
+open menu, the indicator leaving while the menu is open, and its movement. That puts windows
+and a menu on screen for a few seconds.
 
 ### Turning on the brightness and volume keys, and again after a rebuild
 

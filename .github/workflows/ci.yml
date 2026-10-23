@@ -1,5 +1,6 @@
 # Builds, lints and tests every push and pull request, as the checks before an item is done do
-# locally, apart from the pictures: PREVIEW_DIR is for a person to look at.
+# locally, apart from the tests that put windows on screen: they run only with PREVIEW_DIR set,
+# for a person to look at, and are listed here as skipped.
 name: CI
 
 on:
@@ -26,13 +27,15 @@ jobs:
           swift --version
           sw_vers
 
+      # The tests are built too: a plain `swift build` leaves them out, and `swift test` only warns.
       - name: Build without warnings
-        run: swift build -Xswiftc -warnings-as-errors
+        run: swift build --build-tests -Xswiftc -warnings-as-errors
 
       # A test process that has used AppKit's event loop can end with status 0 without
       # reporting, so the tests that reported passing must add up to every test there is.
       # Swift Testing reports a run per test process: one per target with some toolchains, one
-      # for both with others.
+      # for both with others. A skipped test is counted with those that passed, so the skipped
+      # ones are named, to be seen.
       - name: Test
         run: |
           set -o pipefail
@@ -44,6 +47,7 @@ jobs:
             echo "::error::$passed tests reported passing, of the $expected there are."
             exit 1
           fi
+          grep -oE 'Test [^ ]+ skipped.*' test.log | sed 's/^/::notice::/' || true
 
       - name: Lint
         run: swift format lint --strict --recursive Sources Tests Scripts Package.swift

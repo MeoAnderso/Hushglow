@@ -4,6 +4,24 @@ import Testing
 
 // Pictures for review. They are written only when PREVIEW_DIR names a folder to write them to.
 
+extension Trait where Self == ConditionTrait {
+    /// For a test that puts windows or a menu on screen, as the pictures need: it runs only
+    /// when PREVIEW_DIR is set, and is reported as skipped otherwise, rather than passing
+    /// without having done anything.
+    static var onScreen: Self {
+        .enabled(
+            if: ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil,
+            "It puts windows on screen, which only a run with PREVIEW_DIR set does")
+    }
+
+    /// For a test of the indicator's movement, which Reduce Motion takes away.
+    static var withMotion: Self {
+        .enabled("Reduce Motion is on") {
+            await MainActor.run { !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+        }
+    }
+}
+
 /// Writes an image for visual review when PREVIEW_DIR is set; does nothing otherwise.
 @MainActor
 func writePreview(_ image: NSImage, named name: String) throws {

@@ -684,7 +684,8 @@ func descendants(of view: NSView) -> [NSView] {
 
         window.close()
         #expect(!settings.isOpen)
-        for _ in 0..<50 where closed == 0 { try? await Task.sleep(for: .milliseconds(10)) }
+        // Polled, since other tests may keep the main thread busy for a while.
+        for _ in 0..<500 where closed == 0 { try? await Task.sleep(for: .milliseconds(10)) }
         #expect(closed == 1)
     }
 

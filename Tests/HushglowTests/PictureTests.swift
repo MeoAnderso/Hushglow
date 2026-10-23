@@ -121,8 +121,7 @@ private func clearPanel(_ frame: NSRect) -> NSPanel {
     /// Pictures of the Settings panel and the two notices over a page that is bright on one side
     /// and dark on the other, in light and dark mode, and in both with the app's own parts as
     /// Increase Contrast draws them. Runs only when PREVIEW_DIR is set.
-    @Test func picturesOfTheWindows() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @Test(.onScreen) func picturesOfTheWindows() async throws {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
         let host = StubHost()
@@ -174,8 +173,8 @@ private func clearPanel(_ frame: NSRect) -> NSPanel {
 extension GlassWindowTests {
     /// Pictures of the permission helper over the same page, and a short film of its glow.
     /// Runs only when PREVIEW_DIR is set.
-    @Test func pictureOfTheHelper() async throws {
-        guard let directory = ProcessInfo.processInfo.environment["PREVIEW_DIR"] else { return }
+    @Test(.onScreen) func pictureOfTheHelper() async throws {
+        let directory = try #require(ProcessInfo.processInfo.environment["PREVIEW_DIR"])
         NSApplication.shared.setActivationPolicy(.accessory)
         let helper = PermissionHelper(onAddWithoutDragging: {})
         let panelSize = PermissionHelper.panelFrame(around: NSRect(origin: .zero, size: PermissionHelper.size)).size
@@ -232,8 +231,7 @@ extension GlassWindowTests {
     /// An indication that is held, as for a key watch, stays until it is released; a level
     /// shown meanwhile takes its place and gives it back. Runs only when PREVIEW_DIR is set,
     /// since it shows the indicator.
-    @Test func aHeldIndicationGivesWayAndComesBack() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @Test(.onScreen) func aHeldIndicationGivesWayAndComesBack() async throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let osd = OSD()
         let level = Indication.level(Feedback(kind: .volume, fraction: 0.5))
@@ -259,8 +257,7 @@ extension GlassWindowTests {
     /// scheduled for the default mode alone waits until the menu closes. An indicator that a
     /// key brings up meanwhile has to leave on time all the same. Runs only when PREVIEW_DIR
     /// is set, since it shows the indicator.
-    @Test func leavesOnTimeWhileAMenuIsOpen() {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @Test(.onScreen) func leavesOnTimeWhileAMenuIsOpen() {
         NSApplication.shared.setActivationPolicy(.accessory)
         let osd = OSD()
         osd.show(.level(Feedback(kind: .volume, fraction: 0.5)))
@@ -278,8 +275,7 @@ extension GlassWindowTests {
     /// it there: the view is not asked to draw and no timer of the app's runs. The indicator's
     /// clock is slowed twenty times, so that the middle of an eighth of a second can be caught
     /// whatever else the tests are doing. Runs only when PREVIEW_DIR is set.
-    @Test func theBarGlidesBetweenLevels() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @Test(.onScreen) func theBarGlidesBetweenLevels() async throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let size = NSSize(width: OSD.size.width + 48, height: OSD.size.height + 48)
         let frame = NSRect(origin: NSPoint(x: 420, y: 140), size: size)
@@ -319,8 +315,7 @@ extension GlassWindowTests {
     /// Pictures of the capsules the app really builds, composited over a page by the window
     /// server. Only this process's own windows are captured. Runs only when PREVIEW_DIR is set,
     /// since it puts a window on screen for a moment.
-    @Test func picturesOfEachLook() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @Test(.onScreen) func picturesOfEachLook() async throws {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
@@ -378,8 +373,7 @@ extension GlassWindowTests {
 
     /// The picture the README shows, .github/osd-preview.png: every state of the indicator on
     /// glass, over the dusk sky of the app's icon. Runs only when PREVIEW_DIR is set.
-    @Test func pictureOfEveryState() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @Test(.onScreen) func pictureOfEveryState() async throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let states: [Indication] = [
             .level(Feedback(kind: .brightness, fraction: 0.5)), .level(Feedback(kind: .volume, fraction: 0.1875)),
@@ -614,8 +608,7 @@ private final class KeySession: NSObject, NSMenuDelegate {
     /// there and the menu never has it; any other goes on to the menu. Runs only when
     /// PREVIEW_DIR is set, and in a process of its own, for the same reason as the test below
     /// and because the application object has to be the app's own from the start.
-    @Test func aShortcutIsTakenOnItsWayToTheOpenMenu() async {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @Test(.onScreen) func aShortcutIsTakenOnItsWayToTheOpenMenu() async {
         await #expect(processExitsWith: .success) {
             try await MainActor.run {
                 let application = try #require(Application.shared as? Application)
@@ -644,8 +637,7 @@ private final class KeySession: NSObject, NSMenuDelegate {
     /// It runs in a process of its own. Once a process has used AppKit's event loop, which a
     /// menu does, every event from the window server stops the main run loop to hand it over,
     /// and the test runner takes its run loop stopping to mean that the tests are over.
-    @Test func aDragInTheOpenMenu() async {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @Test(.onScreen) func aDragInTheOpenMenu() async {
         await #expect(processExitsWith: .success) {
             try await MainActor.run {
                 NSApplication.shared.setActivationPolicy(.accessory)
@@ -687,8 +679,7 @@ extension MenuOnScreenTests {
     /// as it leaves; with Reduce Motion it only fades. Each is a Core Animation animation on
     /// the layer that holds the capsule and its shadow. A picture is taken part of the way in,
     /// with the clock slowed. Runs only when PREVIEW_DIR is set, since it shows the indicator.
-    @MainActor @Test func growsIntoPlaceAndShrinksAway() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil else { return }
+    @MainActor @Test(.onScreen) func growsIntoPlaceAndShrinksAway() async throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let osd = OSD()
@@ -745,10 +736,7 @@ extension MenuOnScreenTests {
     /// A step that meets an end of the range nudges the capsule towards that end, and a refusal
     /// shakes it; each moves it sideways on top of whatever else it is doing. Runs only when
     /// PREVIEW_DIR is set, since it shows the indicator, and only without Reduce Motion.
-    @MainActor @Test func nudgesAtAnEndAndShakesWhenRefused() async throws {
-        guard ProcessInfo.processInfo.environment["PREVIEW_DIR"] != nil,
-            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        else { return }
+    @MainActor @Test(.onScreen, .withMotion) func nudgesAtAnEndAndShakesWhenRefused() async throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         func pushed(_ end: Feedback.End) -> Indication {
             var feedback = Feedback(kind: .volume, fraction: end == .top ? 1 : 0)
