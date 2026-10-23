@@ -1696,6 +1696,41 @@ final class StubMenuHost: StatusMenuHost {
         #expect(controls.statusLine.title == "Controlling PANEL 27")
     }
 
+    /// A display that goes while the menu is open takes its rows out of the menu with it. A
+    /// slider of those rows that is still moved, as one under the mouse may be, does nothing;
+    /// it used to read the rows after they had been let go, and the app stopped.
+    @Test func theRowsOfADisplayThatGoesLeaveTheOpenMenu() throws {
+        let host = StubMenuHost(brightness: 50, volume: 30)
+        let controls = MenuControls(host: host)
+        host.menuDisplays.append(
+            MenuDisplay(
+                id: ObjectIdentifier(second), name: "PANEL 32", state: StubMenuHost.state(brightness: 80, volume: nil)))
+        let menu = NSMenu()
+        let fixed = [NSMenuItem(title: "Quit", action: nil, keyEquivalent: "")]
+        controls.update(menu, fixedItems: fixed)
+        #expect(menu.items == controls.items + fixed)
+        let first = menu.items.first
+        let orphan = controls.groups[1].brightnessRow
+        #expect(menu.items.contains { $0.view === orphan })
+
+        host.menuDisplays.removeLast()
+        controls.update(menu, fixedItems: fixed)
+        #expect(menu.items == controls.items + fixed)
+        #expect(!menu.items.contains { $0.view === orphan })
+        // What stays is not taken out and put back.
+        #expect(menu.items.first === first)
+
+        #expect(orphan.slider.accessibilityPerformIncrement())
+        #expect(host.commands.isEmpty)
+
+        // A display that comes back gets rows in the open menu again.
+        host.menuDisplays.append(
+            MenuDisplay(
+                id: ObjectIdentifier(second), name: "PANEL 32", state: StubMenuHost.state(brightness: 80, volume: nil)))
+        controls.update(menu, fixedItems: fixed)
+        #expect(menu.items == controls.items + fixed && controls.groups.count == 2)
+    }
+
     /// The keys change the display under the pointer, and the volume the display the sound
     /// plays through; with one display, or set to change every display, they change all.
     /// A display with contrast and inputs has a contrast row and its inputs in a submenu, the

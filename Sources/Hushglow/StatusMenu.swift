@@ -106,16 +106,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         let controls = controls ?? build(menu)
-        controls.update()
         // A display came or went since the menu was last open.
-        let items = controls.items + fixedItems
-        if menu.items != items { menu.items = items }
+        controls.update(menu, fixedItems: fixedItems)
     }
 
-    /// Called when the displays were re-read.
+    /// Called when the displays were re-read. The menu's items follow at once, open or not: an
+    /// open menu would otherwise go on showing the rows of a display that has gone.
     func displaysChanged() {
         updateIcon()
-        controls?.update()
+        guard let controls, let menu = item.menu else { return }
+        controls.update(menu, fixedItems: fixedItems)
     }
 
     /// Called when a key, a shortcut or the command line has changed a level.
@@ -277,6 +277,19 @@ final class MenuControls: NSObject {
         hintItem.isHidden = hintItem.attributedTitle?.length == 0
     }
 
+    /// Brings everything in line with what the app knows, and the menu's items with the rows:
+    /// a group that is let go leaves the menu with it. Items that stay are left where they are,
+    /// so that a slider being dragged is not taken out from under the mouse.
+    func update(_ menu: NSMenu, fixedItems: [NSMenuItem]) {
+        update()
+        let wanted = items + fixedItems
+        for item in menu.items where !wanted.contains(item) { menu.removeItem(item) }
+        for (index, item) in wanted.enumerated() where menu.items.firstIndex(of: item) != index {
+            if item.menu === menu { menu.removeItem(item) }
+            menu.insertItem(item, at: index)
+        }
+    }
+
     /// A level was changed from outside the menu: by a key, a shortcut or the command line.
     /// Rows that are on screen follow at once. With the menu closed they are in no window and
     /// there is nothing to do, since everything is brought up to date when the menu opens.
@@ -339,13 +352,15 @@ final class DisplayRows: NSObject {
 
     override init() {
         super.init()
-        brightnessRow.onChange = { [unowned self] in set(.brightness, to: $0) }
+        // The rows' views can outlive the group, in a menu that has not let go of them yet; a
+        // slider moved there then does nothing.
+        brightnessRow.onChange = { [weak self] in self?.set(.brightness, to: $0) }
         brightnessItem.view = brightnessRow
-        volumeRow.onChange = { [unowned self] in set(.volume, to: $0) }
+        volumeRow.onChange = { [weak self] in self?.set(.volume, to: $0) }
         volumeRow.button?.target = self
         volumeRow.button?.action = #selector(toggleMute)
         volumeItem.view = volumeRow
-        contrastRow.onChange = { [unowned self] in set(.contrast, to: $0) }
+        contrastRow.onChange = { [weak self] in self?.set(.contrast, to: $0) }
         contrastItem.view = contrastRow
         inputItem.submenu = NSMenu(title: Command.Control.input.title)
         for input in DDC.Input.allCases {
