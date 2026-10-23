@@ -2509,4 +2509,32 @@ final class StubMenuHost: StatusMenuHost {
         watch.stop()
         #expect(ended == 0 && !watch.isWatching)
     }
+
+    /// Only function and navigation keys and the media keys are recorded: never letters,
+    /// digits or punctuation, nor a key that gives no characters, as a dead key can.
+    @Test func recordsOnlySpecialKeys() throws {
+        func key(_ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws -> String? {
+            let event = try #require(
+                NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                    characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+                    keyCode: keyCode))
+            return KeyWatch.describe(type: .keyDown, event: event)
+        }
+        #expect(try key("a", 0) == nil)
+        #expect(try key("7", 26) == nil)
+        #expect(try key(";", 41) == nil)
+        #expect(try key("a", 0, [.command]) == nil)
+        #expect(try key("", 33) == nil)
+        #expect(try key("\u{F700}", 0x7E) == "key up")
+        #expect(try key("\u{F710}", 0x69, [.control]) == "key f13")
+
+        let volumeUp = try #require(
+            NSEvent.otherEvent(
+                with: .systemDefined, location: .zero, modifierFlags: NSEvent.ModifierFlags(rawValue: 0xA00),
+                timestamp: 0, windowNumber: 0, context: nil, subtype: Int16(AuxiliaryKey.eventSubtype),
+                data1: 0xA << 8, data2: -1))
+        let systemDefined = try #require(CGEventType(rawValue: EventTap.systemDefined))
+        #expect(KeyWatch.describe(type: systemDefined, event: volumeUp) == "media key volume up")
+    }
 }

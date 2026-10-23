@@ -56,12 +56,15 @@ final class KeyWatch {
         seen?.append(description)
     }
 
-    fileprivate nonisolated static func describe(type: CGEventType, event: NSEvent) -> String? {
+    /// What a key press is called in the watch's report; nil for one it must not record.
+    nonisolated static func describe(type: CGEventType, event: NSEvent) -> String? {
         if type == .keyDown {
             // Function and navigation keys report characters in a private Unicode range; ordinary
-            // typing does not, and is left alone.
-            let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first?.value
-            guard scalar == nil || (0xF700...0xF8FF).contains(scalar!) else { return nil }
+            // typing does not, and is left alone. So is a key that reports none, as a dead key
+            // can: its code would tell which accent was typed.
+            guard let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first?.value,
+                (0xF700...0xF8FF).contains(scalar)
+            else { return nil }
             let code = Int(event.keyCode)
             return "key \(Shortcut.keyName(for: code) ?? "code \(code)")"
         }
