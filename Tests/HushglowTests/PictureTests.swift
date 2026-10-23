@@ -537,6 +537,9 @@ private final class KeySession: NSObject, NSMenuDelegate {
     private(set) var taken: [String] = []
     /// The items the menu highlighted, which is what a key press that reaches it does.
     private(set) var highlighted: [String] = []
+    /// Whether the highlight was taken away after the first key, as the real pointer does when
+    /// it moves while someone uses the Mac; what was highlighted then says nothing of the keys.
+    private(set) var highlightWasLost = false
     private let menu = NSMenu()
     private var ticks = 0
     /// The tick at which the menu opened, which comes later while the Mac is busy.
@@ -572,7 +575,11 @@ private final class KeySession: NSObject, NSMenuDelegate {
     }
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-        if let item { highlighted.append(item.title) }
+        if let item {
+            highlighted.append(item.title)
+        } else if !highlighted.isEmpty {
+            highlightWasLost = true
+        }
     }
 
     @objc private func pick() {}
@@ -620,7 +627,13 @@ private final class KeySession: NSObject, NSMenuDelegate {
                 #expect(session.taken == ["ctrl+alt+up"])
                 // Down moved to the first item and then to the second; the shortcut between
                 // them moved nothing.
-                #expect(session.highlighted == ["One", "Two"], "Highlighted: \(session.highlighted)")
+                if session.highlightWasLost {
+                    withKnownIssue("The real pointer took the menu's highlight away", isIntermittent: true) {
+                        #expect(session.highlighted == ["One", "Two"], "Highlighted: \(session.highlighted)")
+                    }
+                } else {
+                    #expect(session.highlighted == ["One", "Two"], "Highlighted: \(session.highlighted)")
+                }
             }
         }
     }
