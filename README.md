@@ -135,7 +135,9 @@ Hushglow get brightness
 does not start the app. While the app is running these commands go through it, `get`
 included, so that only one program talks to the display at a time. The running app answers
 its own command line only: the one inside the same app, or from a build signed with the same
-certificate. Another build of the app, such as one run from `.build`, is turned down.
+certificate. Another build of the app, such as one run from `.build`, is turned down. That keeps
+builds apart; it does not keep your other programs out, since any of them can run the command
+line too.
 
 ### When something does not respond
 

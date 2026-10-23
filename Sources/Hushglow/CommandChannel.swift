@@ -148,6 +148,10 @@ enum ChannelAddress {
 /// Who may talk to the app: code whose signature meets the app's own designated requirement.
 /// That is the same build while the app is ad-hoc signed, and the same certificate and
 /// identifier once it has one. The command line is the app's own executable, so it meets it.
+///
+/// This keeps other builds of the app, and programs that speak the protocol themselves, from
+/// the running app. It is not a wall between the app and the user's other programs: any of
+/// them can run the command line, which does what its arguments say.
 struct CallerRequirement: @unchecked Sendable {
     // A requirement is an immutable Core Foundation object, safe to share between threads.
     let requirement: SecRequirement
@@ -176,18 +180,35 @@ struct CallerRequirement: @unchecked Sendable {
         self.requirement = requirement
     }
 
-    /// Whether the process at the other end of a connected socket meets the requirement. It is
-    /// told by its audit token, which, unlike a process number, cannot pass to another process.
-    func isMet(byPeerOf socket: Int32) -> Bool {
+    /// The audit token of the process at the other end of a connected socket; nil when it
+    /// cannot be had. macOS gives the token of that process as it is when asked: one that runs
+    /// another program after connecting has that program's token from then on, with another
+    /// pidversion in it.
+    static func token(ofPeer socket: Int32) -> Data? {
         var token = audit_token_t()
         var length = socklen_t(MemoryLayout<audit_token_t>.size)
-        guard getsockopt(socket, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &length) == 0 else { return false }
-        let attributes = [kSecGuestAttributeAudit: withUnsafeBytes(of: &token) { Data($0) }] as CFDictionary
+        guard getsockopt(socket, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &length) == 0 else { return nil }
+        return withUnsafeBytes(of: &token) { Data($0) }
+    }
+
+    /// Whether the process with this audit token meets the requirement.
+    func isMet(by token: Data) -> Bool {
+        let attributes = [kSecGuestAttributeAudit: token] as CFDictionary
         var code: SecCode?
         guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &code) == errSecSuccess, let code else {
             return false
         }
         return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+    }
+
+    /// Whether a caller is answered, from its token as it was accepted and as it is once its
+    /// request has come. A process that sends a request and then runs the app's own executable
+    /// would be judged as that executable if it were asked about only after the request; asked
+    /// about as it is accepted too, it is caught in all but a race it has to win against the
+    /// accept. Nothing on a Unix socket tells who wrote a request for certain.
+    static func admits(accepted: Data?, requested: Data?, isMet: (Data) -> Bool) -> Bool {
+        guard let accepted, accepted == requested else { return false }
+        return isMet(accepted)
     }
 }
 
@@ -243,7 +264,8 @@ private enum Line {
 final class CommandChannel {
     struct Handlers {
         /// A command, and the number of the display it is for; nil for every display.
-        var onCommand: (Command, Int?) -> Void
+        /// False when there is no display with that number.
+        var onCommand: (Command, Int?) -> Bool
         var onShortcutsChanged: () -> Void
         var onKeyTest: () -> Void
         var onWatchKeys: (TimeInterval) -> Void
@@ -279,6 +301,7 @@ final class CommandChannel {
         }
         guard bound == 0, chmod(path, 0o600) == 0, listen(listener, 8) == 0 else {
             close(listener)
+            if bound == 0 { unlink(path) }
             return nil
         }
         _ = fcntl(listener, F_SETFL, fcntl(listener, F_GETFL) | O_NONBLOCK)
@@ -317,6 +340,7 @@ final class CommandChannel {
     /// Reads one request off the thread that accepted it, and answers it on the main thread,
     /// where the app's state lives.
     nonisolated private func serve(_ client: Int32, requirement: CallerRequirement?) {
+        let accepted = CallerRequirement.token(ofPeer: client)
         // An accepted socket takes after the listener; this one is read and written in turn.
         _ = fcntl(client, F_SETFL, fcntl(client, F_GETFL) & ~O_NONBLOCK)
         Line.setTimeLimit(2, on: client)
@@ -327,9 +351,10 @@ final class CommandChannel {
         guard let line = Line.read(from: client),
             let request = try? JSONDecoder().decode(ChannelRequest.self, from: line)
         else { return finish(.refused("Not a request.")) }
-        guard requirement?.isMet(byPeerOf: client) == true else {
-            return finish(.refused(Self.notTheApp))
-        }
+        guard let requirement,
+            CallerRequirement.admits(
+                accepted: accepted, requested: CallerRequirement.token(ofPeer: client), isMet: requirement.isMet)
+        else { return finish(.refused(Self.notTheApp)) }
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 self.handle(request) { reply in DispatchQueue.global(qos: .userInitiated).async { finish(reply) } }
@@ -343,7 +368,9 @@ final class CommandChannel {
             guard let command = Command(words: request.words ?? []), (request.display ?? 1) > 0 else {
                 return reply(.refused("Not a command."))
             }
-            handlers.onCommand(command, request.display)
+            guard handlers.onCommand(command, request.display) else {
+                return reply(.refused("There is no display \(request.display ?? 0); `status` lists them."))
+            }
             reply(.taken)
         case .shortcutsChanged:
             handlers.onShortcutsChanged()

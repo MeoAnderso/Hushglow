@@ -77,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         osd.anchor = { [unowned statusMenu] in statusMenu.itemFrame }
         channel = CommandChannel(
             handlers: .init(
-                onCommand: { [unowned self] in run($0, showOSD: true, to: displays(numbered: $1)) },
+                onCommand: { [unowned self] in run($0, onDisplayNumbered: $1) },
                 onShortcutsChanged: { [unowned self] in keyboard.reloadShortcuts() },
                 onKeyTest: { [unowned self] in keyboard.postTestKey() },
                 onWatchKeys: { [unowned self] in watchKeys(for: $0) },
@@ -227,12 +227,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
         return displayUnderPointer.map { [$0] }
     }
 
-    /// The display with a number from the command line, counted from 1 in the order `status`
-    /// lists them; nil for every display.
-    private func displays(numbered number: Int?) -> [AVService]? {
-        guard let number else { return nil }
+    /// Runs a command from the command line on the display with that number, counted from 1
+    /// in the order `status` lists them, or on every display; false when there is no display
+    /// with that number.
+    private func run(_ command: Command, onDisplayNumbered number: Int?) -> Bool {
+        guard let number else {
+            run(command, showOSD: true, to: nil)
+            return true
+        }
         let controlled = displays?.controlled ?? []
-        return controlled.indices.contains(number - 1) ? [controlled[number - 1]] : []
+        guard controlled.indices.contains(number - 1) else { return false }
+        run(command, showOSD: true, to: [controlled[number - 1]])
+        return true
     }
 
     /// The display under control that sound plays through, by the name of the sound output.

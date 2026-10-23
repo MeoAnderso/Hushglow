@@ -2064,8 +2064,10 @@ final class StubMenuHost: StatusMenuHost {
                 name: name, requirement: requirement,
                 handlers: .init(
                     onCommand: { command, display in
+                        guard (display ?? 1) <= 2 else { return false }
                         received.commands.append(command)
                         received.displays.append(display)
+                        return true
                     },
                     onShortcutsChanged: { received.shortcutChanges += 1 },
                     onKeyTest: { received.keyTests += 1 },
@@ -2107,6 +2109,29 @@ final class StubMenuHost: StatusMenuHost {
         #expect(received.shortcutChanges == 1)
         #expect(received.keyTests == 1)
         #expect(received.watches == [10])
+    }
+
+    /// A command for a display there is not is turned down in words, not taken and lost.
+    @MainActor
+    @Test func turnsDownADisplayThatIsNotThere() async throws {
+        let received = Received()
+        let channel = try makeChannel(received)
+        defer { channel.stop() }
+        let reply = await ask(.command(.set(.brightness, percent: 40), display: 9))
+        #expect(reply?.refusal == "There is no display 9; `status` lists them.")
+        #expect(received.commands.isEmpty)
+    }
+
+    /// A caller is judged as it was accepted and as it is once its request has come: one that
+    /// has become another program between the two, as one that sends a request and then runs
+    /// the app's own executable would, is turned down even when the program it became would do.
+    @Test func aCallerThatBecameAnotherProgramIsTurnedDown() {
+        let caller = Data([1, 2, 3])
+        let program = Data([1, 2, 4])
+        #expect(CallerRequirement.admits(accepted: caller, requested: caller) { $0 == caller })
+        #expect(!CallerRequirement.admits(accepted: caller, requested: program) { _ in true })
+        #expect(!CallerRequirement.admits(accepted: nil, requested: program) { _ in true })
+        #expect(!CallerRequirement.admits(accepted: caller, requested: caller) { _ in false })
     }
 
     @MainActor
