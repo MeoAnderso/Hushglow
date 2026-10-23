@@ -760,6 +760,15 @@ func descendants(of view: NSView) -> [NSView] {
             descendants(of: content).compactMap { $0 as? NSPopUpButton }
                 .first { $0.accessibilityLabel() == "Modifier for quarter steps" })
         #expect(popup.itemTitles == ["⌘ Cmd", "⇧ Shift", "⌥ Alt", "⌃ Ctrl"])
+        // One sentence for translators, around the menu.
+        let texts = descendants(of: content).compactMap {
+            ($0 as? NSButton)?.title ?? ($0 as? NSTextField)?.stringValue
+        }
+        #expect(texts.contains("Quarter steps with") && texts.contains("added to a shortcut"))
+        let slot = SettingsWindow.menuSlot
+        #expect(SettingsWindow.around("Viertelschritte mit \(slot)").before == "Viertelschritte mit")
+        #expect(SettingsWindow.around("Viertelschritte mit \(slot)").after == "")
+        #expect(SettingsWindow.around("\(slot) で 1/4 ステップ") == (before: "", after: "で 1/4 ステップ"))
         #expect(popup.isEnabled == ShortcutSettings.quarterSteps)
         let choices = Shortcut.Modifiers.quarterStepChoices
         #expect(popup.titleOfSelectedItem?.hasSuffix(ShortcutSettings.quarterStepModifier.title ?? "?") == true)

@@ -311,8 +311,8 @@
     "Put back the default shortcut, %@" : {
 
     },
-    "Quarter steps with" : {
-      "comment" : "Followed by a modifier, then: added to a shortcut"
+    "Quarter steps with %@ added to a shortcut" : {
+      "comment" : "The placeholder is a menu of modifiers, such as Cmd; the rest is the checkbox and a label"
     },
     "Quit %@" : {
 
@@ -448,9 +448,6 @@
     },
     "You can also change them, if you want. Choose Settings… from the moon’s menu." : {
 
-    },
-    "added to a shortcut" : {
-      "comment" : "Ends: Quarter steps with"
     },
     "brightness and volume keys" : {
       "comment" : "The keyboard's own keys, within a sentence"

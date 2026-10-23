@@ -201,9 +201,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             controls[action] = control
             shortcutRows.append((action.title, [control]))
         }
-        let quarterStepsBox = checkbox(
-            String(localized: "Quarter steps with", comment: "Followed by a modifier, then: added to a shortcut"),
-            #selector(quarterStepsChanged))
+        let quarterStepsSentence = Self.around(
+            String(
+                localized: "Quarter steps with \(Self.menuSlot) added to a shortcut",
+                comment: "The placeholder is a menu of modifiers, such as Cmd; the rest is the checkbox and a label"))
+        let quarterStepsBox = checkbox(quarterStepsSentence.before, #selector(quarterStepsChanged))
         self.quarterStepsBox = quarterStepsBox
         let quarterStepPopup = NSPopUpButton(frame: .zero, pullsDown: false)
         quarterStepPopup.addItems(
@@ -213,11 +215,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         quarterStepPopup.setAccessibilityLabel(String(localized: "Modifier for quarter steps"))
         self.quarterStepPopup = quarterStepPopup
         let quarterStepRow = Layout.row(
-            [
-                quarterStepsBox, quarterStepPopup,
-                NSTextField(
-                    labelWithString: String(localized: "added to a shortcut", comment: "Ends: Quarter steps with")),
-            ], spacing: 6)
+            [quarterStepsBox, quarterStepPopup]
+                + (quarterStepsSentence.after.isEmpty
+                    ? [] : [NSTextField(labelWithString: quarterStepsSentence.after)]),
+            spacing: 6)
         // Takes room only while it has something to say.
         let message = note()
         message.isHidden = true
@@ -428,6 +429,19 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         show(message: nil)
         reload()
         applyShortcuts()
+    }
+
+    /// Where a menu stands in a sentence that is translated whole.
+    static let menuSlot = "\u{FFFC}"
+
+    /// The words before the menu in such a sentence and those after it, wherever the language
+    /// puts the menu.
+    static func around(_ sentence: String) -> (before: String, after: String) {
+        let parts = sentence.components(separatedBy: menuSlot)
+        return (
+            parts[0].trimmingCharacters(in: .whitespaces),
+            parts.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        )
     }
 
     static func quarterStepClash(
