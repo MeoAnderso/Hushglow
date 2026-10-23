@@ -1788,15 +1788,17 @@ final class StubMenuHost: StatusMenuHost {
 
 @MainActor
 @Suite struct MenuBarIconTests {
-    /// For a muted display the sun has a crossed-out speaker in its corner; both are templates
-    /// of one size, so the menu bar gives them its colour and nothing moves.
+    /// For a muted display the icon has a crossed-out speaker beside it, and stays whole; both are
+    /// templates, so the menu bar gives them its colour.
     @Test func showsAMutedDisplay() throws {
         let plain = StatusMenu.icon(muted: false)
         let muted = StatusMenu.icon(muted: true)
-        #expect(plain.isTemplate && muted.isTemplate && plain.size == muted.size)
+        #expect(plain.isTemplate && muted.isTemplate)
+        #expect(muted.size.height == plain.size.height && muted.size.width > plain.size.width + 8)
+        #expect(plain.accessibilityDescription == "Hushglow")
         #expect(muted.accessibilityDescription == "Hushglow, display muted")
 
-        func inked(_ image: NSImage) throws -> [Bool] {
+        func inked(_ image: NSImage) throws -> [[Bool]] {
             let scale: CGFloat = 4
             let bitmap = try #require(
                 NSBitmapImageRep(
@@ -1808,18 +1810,24 @@ final class StubMenuHost: StatusMenuHost {
             NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
             image.draw(in: NSRect(origin: .zero, size: image.size))
             NSGraphicsContext.restoreGraphicsState()
-            return (0..<bitmap.pixelsHigh).flatMap { y in
+            return (0..<bitmap.pixelsHigh).map { y in
                 (0..<bitmap.pixelsWide).map { x in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.5 }
             }
         }
         let plainInk = try inked(plain)
         let mutedInk = try inked(muted)
-        #expect(zip(plainInk, mutedInk).filter { $0 != $1 }.count > 20)
+        let side = try #require(plainInk.first).count
+        // The icon is drawn the same either way, and the speaker stands apart from it.
+        #expect(mutedInk.map { Array($0.prefix(side)) } == plainInk)
+        #expect(mutedInk.allSatisfy { !$0[side..<side + 8].contains(true) })
+        #expect(mutedInk.joined().count(where: \.self) > plainInk.joined().count(where: \.self) + 100)
         // Large enough to look at.
-        let view = NSImageView(frame: NSRect(x: 0, y: 0, width: 96, height: 48))
-        view.imageScaling = .scaleProportionallyUpOrDown
-        view.image = muted
-        try writePreviews(of: view, named: "menu-bar-icon-muted")
+        for (image, name) in [(plain, "menu-bar-icon"), (muted, "menu-bar-icon-muted")] {
+            let view = NSImageView(frame: NSRect(x: 0, y: 0, width: 96, height: 48))
+            view.imageScaling = .scaleProportionallyUpOrDown
+            view.image = image
+            try writePreviews(of: view, named: name)
+        }
     }
 }
 

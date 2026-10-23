@@ -42,7 +42,8 @@ protocol StatusMenuHost: AnyObject {
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
     private unowned let host: any StatusMenuHost
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    /// Of variable length, as the icon grows by a speaker while the display is muted.
+    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var controls: MenuControls?
 
     /// Whether the icon shows the display as muted.
@@ -131,32 +132,50 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         item.button?.image = Self.icon(muted: muted)
     }
 
-    /// The moon over the haze, as on the app's icon; for a muted display, with a crossed-out
-    /// speaker cut into its lower right corner. A template, so that the menu bar gives it its colour.
+    /// The app's icon in one colour; for a muted display, with a crossed-out speaker beside it, so
+    /// that both stay whole. A template, so that the menu bar gives it its colour.
     static func icon(muted: Bool) -> NSImage {
         let description = muted ? String(localized: "\(AppInfo.name), display muted") : AppInfo.name
-        guard let moon = NSImage(systemSymbolName: "moon.haze.fill", accessibilityDescription: description) else {
-            return NSImage(systemSymbolName: "moon.fill", accessibilityDescription: description) ?? NSImage()
-        }
-        guard muted,
-            let speaker = NSImage(systemSymbolName: "speaker.slash.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: (moon.size.height * 0.42).rounded(), weight: .semibold))
-        else { return moon }
-        let icon = NSImage(size: moon.size, flipped: false) { bounds in
-            moon.draw(in: bounds)
-            let badge = NSRect(
-                x: bounds.maxX - speaker.size.width, y: bounds.minY, width: speaker.size.width,
-                height: speaker.size.height)
-            // A gap round the speaker, so that it reads apart from the moon.
-            NSGraphicsContext.current?.compositingOperation = .destinationOut
-            NSBezierPath(roundedRect: badge.insetBy(dx: -1, dy: -1), xRadius: 2, yRadius: 2).fill()
-            NSGraphicsContext.current?.compositingOperation = .sourceOver
-            speaker.draw(in: badge)
+        let glyph = glyph()
+        let side: CGFloat = 18
+        let gap: CGFloat = 2.5
+        let speaker =
+            muted
+            ? NSImage(systemSymbolName: "speaker.slash.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 11, weight: .bold)) : nil
+        let width = speaker.map { side + gap + $0.size.width } ?? side
+        let icon = NSImage(size: NSSize(width: width, height: side), flipped: false) { _ in
+            NSColor.black.setFill()
+            NSBezierPath(cgPath: glyph).fill()
+            if let speaker {
+                // Half a point low, where it looks centred beside the disc.
+                let y = (side - speaker.size.height) / 2 - 0.5
+                speaker.draw(in: NSRect(origin: NSPoint(x: side + gap, y: y), size: speaker.size))
+            }
             return true
         }
         icon.isTemplate = true
         icon.accessibilityDescription = description
         return icon
+    }
+
+    /// A disc with the crescent moon and a swell of the sea cut out of it, in an 18-point square:
+    /// the app's icon in shapes bold enough to read at the size of the menu bar.
+    private static func glyph() -> CGPath {
+        func disc(_ x: CGFloat, _ y: CGFloat, _ radius: CGFloat) -> CGPath {
+            CGPath(
+                ellipseIn: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2), transform: nil)
+        }
+        // As on the app's icon, a disc less a smaller one set to its upper right.
+        let moon = disc(9.8, 11.2, 3.9).subtracting(disc(11.48, 12.6, 3.28))
+        let wave = CGMutablePath()
+        for step in 0...80 {
+            let t = CGFloat(step) / 80
+            let point = CGPoint(x: -1 + 20 * t, y: 4.6 + sin(2 * .pi * t + 0.3))
+            if step == 0 { wave.move(to: point) } else { wave.addLine(to: point) }
+        }
+        let swell = wave.copy(strokingWithWidth: 2, lineCap: .round, lineJoin: .round, miterLimit: 4)
+        return disc(9, 9, 8.6).subtracting(moon.union(swell))
     }
 
     /// The items at the end of the menu, which never change.
