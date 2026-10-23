@@ -59,6 +59,9 @@ public final class Displays<Transport: DisplayTransport> {
         /// How long a cached value is trusted without hearing from the display. Short enough
         /// that each new burst of key presses starts by reading the display.
         public var staleAfter: TimeInterval = 5
+        /// How often, at most, a command that finds no display under control has the displays
+        /// looked for again, while some stayed silent.
+        public var lookAgainAfter: TimeInterval = 5
 
         public init() {}
     }
@@ -99,6 +102,8 @@ public final class Displays<Transport: DisplayTransport> {
     /// How many displays stayed silent through a whole round of retries. They are taken to
     /// have no DDC, and are not waited for again.
     private var knownSilent = 0
+    /// When a command last had the displays looked for again.
+    private var lookedAgainAt: Date?
 
     public init(
         transport: Transport, queue: DispatchQueue, timing: Timing = Timing(), now: @escaping () -> Date = Date.init,
@@ -158,6 +163,7 @@ public final class Displays<Transport: DisplayTransport> {
             session.has(command.control) && displays.map { $0.contains { $0 === session.display } } ?? true
         }
         guard let first = targets.first else {
+            lookAgainIfOnlySilentDisplays()
             feedback(nil, true)
             return nil
         }
@@ -187,6 +193,17 @@ public final class Displays<Transport: DisplayTransport> {
         generation += 1
         writer.cancelAll()
         for session in sessions { session.suspend() }
+    }
+
+    /// A display that stayed silent through every retry after a wake may only have been slow to
+    /// wake. With no display under control, a command has the displays looked for again, now
+    /// and then, rather than waiting for the menu to open or a display to be plugged in.
+    private func lookAgainIfOnlySilentDisplays() {
+        guard sessions.isEmpty, knownSilent > 0 else { return }
+        let time = now()
+        if let lookedAgainAt, time.timeIntervalSince(lookedAgainAt) < timing.lookAgainAfter { return }
+        lookedAgainAt = time
+        refresh()
     }
 
     /// Gives each display the dimming it may have, for when what decides it has changed, such

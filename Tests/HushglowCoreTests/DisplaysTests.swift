@@ -22,12 +22,19 @@ private final class FakeTransport: DisplayTransport, @unchecked Sendable {
     /// Further external displays that never answer, as one without DDC does.
     private var silent: [Handle] = []
     private var discoveryCount = 0
+    private var listsInReverse = false
 
     func displays() -> [Handle] {
         lock.withLock {
             discoveryCount += 1
-            return [handle] + (second.map { [$0] } ?? []) + silent
+            let found = [handle] + (second.map { [$0] } ?? []) + silent
+            return listsInReverse ? found.reversed() : found
         }
+    }
+
+    /// Makes the searches list the displays the other way round, as after a replug.
+    func listInReverse() {
+        lock.withLock { listsInReverse = true }
     }
 
     func get(_ display: Handle, _ feature: DDC.Feature) -> DDC.Value? {
@@ -525,6 +532,39 @@ private final class Recorder {
         // Taken away again when the screen is no longer known.
         displays.canDim = { _ in false }
         #expect(displays.primary?.dimming == 0)
+    }
+
+    /// A display that stayed silent after a wake may only have been slow to wake: with nothing
+    /// under control, a command has the displays looked for again, and not more often than
+    /// every few seconds.
+    @Test func aCommandWithNothingToControlLooksForASlowDisplayAgain() async {
+        transport.answer(.brightness, false)
+        transport.answer(.volume, false)
+        var timing = Displays<FakeTransport>.Timing()
+        timing.retryDelays = []
+        let recorder = recorder
+        let slow = Displays(
+            transport: transport, queue: queue, timing: timing, now: { recorder.now }, onWriteFailure: {})
+        slow.refresh()
+        await settle()
+        #expect(slow.controlled.isEmpty)
+        let before = transport.discoveries
+
+        slow.apply(brightnessUp)
+        slow.apply(brightnessUp)
+        await settle()
+        #expect(transport.discoveries == before + 1)
+
+        transport.answer(.brightness, true)
+        transport.answer(.volume, true)
+        recorder.now += 6
+        slow.apply(brightnessUp)
+        await settle()
+        #expect(transport.discoveries == before + 2 && slow.controlled.count == 1)
+        // Found, it is not looked for again.
+        slow.apply(.step(.contrast, up: true, fine: false))
+        await settle()
+        #expect(transport.discoveries == before + 2)
     }
 
     @Test func readsTheDisplayForTheCommandLineAndLeavesTheCacheAlone() async {
