@@ -72,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
             log.error("The application object is not the app's own; shortcuts will wait for the menu to close")
         }
 
+        NSApp.mainMenu = Self.mainMenu(settingsTarget: self)
         let statusMenu = StatusMenu(host: self)
         self.statusMenu = statusMenu
         osd.anchor = { [unowned statusMenu] in statusMenu.itemFrame }
@@ -286,6 +287,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuHost, Settin
     }
 
     // MARK: Menu and Settings
+
+    /// The app's main menu. macOS shows none for a menu bar app, but takes key equivalents
+    /// from it all the same: without it, Cmd-W would not close Settings, nor Cmd-Q quit while
+    /// Settings is in front.
+    static func mainMenu(settingsTarget: AnyObject?) -> NSMenu {
+        let appMenu = NSMenu(title: AppInfo.name)
+        let settings = NSMenuItem(
+            title: String(localized: "Settings…"), action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = settingsTarget
+        appMenu.addItem(settings)
+        appMenu.addItem(.separator())
+        appMenu.addItem(
+            NSMenuItem(
+                title: String(localized: "Quit \(AppInfo.name)"), action: #selector(NSApplication.terminate),
+                keyEquivalent: "q"))
+        let windowMenu = NSMenu(title: String(localized: "Window", comment: "The menu of commands for windows"))
+        windowMenu.addItem(
+            NSMenuItem(title: String(localized: "Close"), action: #selector(NSWindow.performClose), keyEquivalent: "w"))
+        let menu = NSMenu()
+        for submenu in [appMenu, windowMenu] {
+            let item = NSMenuItem(title: submenu.title, action: nil, keyEquivalent: "")
+            item.submenu = submenu
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func openSettings() {
+        showSettings()
+    }
 
     func enableKeyboardKeys() {
         keyboard.requestAccess()

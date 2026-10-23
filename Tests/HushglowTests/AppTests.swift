@@ -689,6 +689,24 @@ func descendants(of view: NSView) -> [NSView] {
         #expect(closed == 1)
     }
 
+    /// Settings closes from the keyboard: Esc closes the window, and the app's main menu
+    /// gives Cmd-W to Close, as well as Cmd-Q to Quit and Cmd-comma to Settings.
+    @Test func closesFromTheKeyboard() throws {
+        let host = StubHost()
+        let settings = SettingsWindow(host: host)
+        let window = settings.makeWindow()
+        #expect(settings.isOpen)
+        window.cancelOperation(nil)
+        #expect(!settings.isOpen)
+
+        let items = AppDelegate.mainMenu(settingsTarget: nil).items.compactMap(\.submenu).flatMap(\.items)
+        func item(_ key: String) -> NSMenuItem? { items.first { $0.keyEquivalent == key } }
+        #expect(item("w")?.action == #selector(NSWindow.performClose) && item("w")?.target == nil)
+        #expect(item("q")?.action == #selector(NSApplication.terminate))
+        #expect(item(",")?.title == "Settings…")
+        #expect(items.allSatisfy { $0.isSeparatorItem || $0.keyEquivalentModifierMask == .command })
+    }
+
     @Test func restoringTheDefaultsAsksFirst() throws {
         let host = StubHost()
         let settings = SettingsWindow(host: host)

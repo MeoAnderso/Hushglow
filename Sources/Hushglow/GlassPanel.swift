@@ -9,7 +9,7 @@ enum GlassPanel {
     private static let cornerRadius: CGFloat = 16
 
     static func makeWindow(title: String, content: NSView) -> NSWindow {
-        let window = NSWindow(
+        let window = GlassWindow(
             contentRect: content.frame, styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered,
             defer: false)
         window.title = title
@@ -53,6 +53,14 @@ enum GlassPanel {
                 display: true)
         }
         content.layoutSubtreeIfNeeded()
+    }
+}
+
+/// A glass panel's window. Esc closes it, as it closes a sheet: Settings and the notices have
+/// no Cancel of their own, and a keyboard alone could not otherwise close them.
+final class GlassWindow: NSWindow {
+    override func cancelOperation(_ sender: Any?) {
+        performClose(sender)
     }
 }
 

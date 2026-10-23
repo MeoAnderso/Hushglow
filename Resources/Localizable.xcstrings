@@ -430,6 +430,9 @@
     "Watching special keys" : {
 
     },
+    "Window" : {
+      "comment" : "The menu of commands for windows"
+    },
     "With %@ added, %@ and %@ would both take %@. Choose another modifier, or change one of those shortcuts." : {
       "localizations" : {
         "en" : {

@@ -62,7 +62,7 @@ The app walks you there; the shortcuts, the menu and the command line work witho
 
 ### Settings
 
-Choose Settings… in the menu.
+Choose Settings… in the menu. Esc or Cmd-W closes the window.
 
 - **Indicator.** Its style is Glass (the system's Liquid Glass, which follows the Liquid Glass
   setting in System Settings → Appearance), See-through glass (the same at reduced strength,
