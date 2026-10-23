@@ -193,12 +193,12 @@ final class ShortcutField: ContrastAwareView {
 
 /// A shortcut field with two buttons beside it: one removes the shortcut, the other puts the
 /// action's default shortcut back. They show while the pointer is over the field or them, or
-/// while the field has the focus, and only when pressing them would change something. To
-/// VoiceOver they are there whenever they would change something.
+/// while the field or one of them has the focus, and only when pressing them would change
+/// something. To VoiceOver they are there whenever they would change something.
 final class ShortcutControl: NSView {
     let field = Layout.size(ShortcutField(frame: .zero), NSSize(width: 196, height: 26))
-    let resetButton: NSButton
-    let removeButton: NSButton
+    let resetButton: FocusButton
+    let removeButton: FocusButton
     /// Called when one of the buttons is pressed.
     var onReset: (() -> Void)?
     var onRemove: (() -> Void)?
@@ -222,11 +222,14 @@ final class ShortcutControl: NSView {
         didSet { if isHovered != oldValue { updateButtons() } }
     }
     private var fieldHasFocus = false
+    /// With Full Keyboard Access, Tab moves on from the field to the buttons; one that has the
+    /// focus must stay in sight.
+    private var buttonHasFocus = false
 
     /// `title` is the action's, such as "Brightness up".
     init(title: String) {
-        func button(_ symbol: String, _ action: Selector) -> NSButton {
-            let button = NSButton(
+        func button(_ symbol: String, _ action: Selector) -> FocusButton {
+            let button = FocusButton(
                 image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage(), target: nil,
                 action: action)
             button.isBordered = false
@@ -239,7 +242,13 @@ final class ShortcutControl: NSView {
         field.title = String(localized: "\(title) shortcut", comment: "An action, such as Volume up")
         removeButton.setAccessibilityLabel(String(localized: "Remove the \(title) shortcut"))
         removeButton.toolTip = String(localized: "Remove", comment: "Removes a shortcut")
-        for button in [resetButton, removeButton] { button.target = self }
+        for button in [resetButton, removeButton] {
+            button.target = self
+            button.onFocusChange = { [unowned self] in
+                buttonHasFocus = $0
+                updateButtons()
+            }
+        }
         field.onFocusChange = { [unowned self] in
             fieldHasFocus = $0
             updateButtons()
@@ -268,7 +277,7 @@ final class ShortcutControl: NSView {
     var canRemove: Bool { shortcut != nil }
 
     private func updateButtons() {
-        let isShown = isHovered || fieldHasFocus
+        let isShown = isHovered || fieldHasFocus || buttonHasFocus
         for (button, applies) in [(resetButton, canReset), (removeButton, canRemove)] {
             // Faded out rather than hidden, so that the field does not move.
             button.alphaValue = applies && isShown ? 1 : 0
@@ -306,6 +315,23 @@ final class ShortcutControl: NSView {
 
     @objc private func remove() {
         onRemove?()
+    }
+}
+
+/// A button that says when it takes the keyboard's focus and when it gives it up.
+final class FocusButton: NSButton {
+    var onFocusChange: ((Bool) -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onFocusChange?(true) }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onFocusChange?(false) }
+        return resigned
     }
 }
 

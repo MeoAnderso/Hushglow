@@ -587,6 +587,14 @@ func descendants(of view: NSView) -> [NSView] {
         #expect(pressed == ["reset"])
         #expect(window.makeFirstResponder(nil))
         #expect(shown().isEmpty)
+
+        // With Full Keyboard Access, Tab takes the focus on from the field to a button, which
+        // stays in sight while it has it. The field gives the focus up first.
+        #expect(window.makeFirstResponder(control.field))
+        #expect(control.field.resignFirstResponder() && control.resetButton.becomeFirstResponder())
+        #expect(shown() == ["reset"])
+        #expect(control.resetButton.resignFirstResponder())
+        #expect(shown().isEmpty)
     }
 
     /// The line for messages takes room only while it has one, and the window follows, with its
