@@ -1445,6 +1445,13 @@ private func hasLayoutFault(_ view: NSView) -> Bool {
         #expect(row.slider.value == 56.4)
         #expect(row.button != nil)
         #expect(row.subviews.compactMap { $0 as? NSTextField }.first?.stringValue == "56%")
+        // VoiceOver finds the slider, which says its value; not the percentage again, nor the
+        // icon of a row without a button.
+        #expect(row.slider.isAccessibilityElement())
+        #expect(row.subviews.compactMap { $0 as? NSTextField }.allSatisfy { !$0.isAccessibilityElement() })
+        let brightness = SliderRow(name: "Brightness", symbol: "sun.max.fill", hasButton: false)
+        let icon = try #require(brightness.subviews.first { $0 is NSImageView })
+        #expect(!icon.isAccessibilityElement())
         try writePreviews(of: row, named: "menu-row")
         row.slider.isDimmed = true
         try writePreviews(of: row, named: "menu-row-muted")

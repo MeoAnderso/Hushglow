@@ -489,6 +489,8 @@ final class SliderRow: NSView {
             let icon = NSImageView(frame: leading)
             icon.image = image
             icon.contentTintColor = .secondaryLabelColor
+            // A picture of what the slider says in words; VoiceOver would call it "image".
+            icon.setAccessibilityElement(false)
             addSubview(icon)
         }
 
@@ -506,6 +508,8 @@ final class SliderRow: NSView {
         valueLabel.alignment = .right
         valueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         valueLabel.textColor = .secondaryLabelColor
+        // The slider tells VoiceOver its value already.
+        valueLabel.setAccessibilityElement(false)
         addSubview(valueLabel)
     }
 
